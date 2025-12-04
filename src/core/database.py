@@ -27,6 +27,8 @@ class Database:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             self._init_sqlite()
 
+
+
     def _init_sqlite(self):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -44,8 +46,62 @@ class Database:
                 UNIQUE(date, symbol, horizon)
             )
         ''')
+        # Watchlist Table
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS watchlist (
+                symbol TEXT PRIMARY KEY,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         conn.commit()
         conn.close()
+
+    def add_to_watchlist(self, symbol: str):
+        symbol = symbol.upper()
+        if self.is_mongo:
+            self.db.watchlist.update_one(
+                {"name": "default"},
+                {"$addToSet": {"symbols": symbol}},
+                upsert=True
+            )
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            try:
+                c.execute('INSERT INTO watchlist (symbol) VALUES (?)', (symbol,))
+                conn.commit()
+            except sqlite3.IntegrityError:
+                pass
+            finally:
+                conn.close()
+
+    def remove_from_watchlist(self, symbol: str):
+        symbol = symbol.upper()
+        if self.is_mongo:
+            self.db.watchlist.update_one(
+                {"name": "default"},
+                {"$pull": {"symbols": symbol}}
+            )
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('DELETE FROM watchlist WHERE symbol = ?', (symbol,))
+            conn.commit()
+            conn.close()
+
+    def get_watchlist(self) -> List[str]:
+        if self.is_mongo:
+            doc = self.db.watchlist.find_one({"name": "default"})
+            if doc and "symbols" in doc:
+                return sorted(doc["symbols"])
+            return []
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('SELECT symbol FROM watchlist ORDER BY symbol')
+            rows = c.fetchall()
+            conn.close()
+            return [row[0] for row in rows]
 
     def save_forecast(self, date: str, symbol: str, horizon: int, prediction: float, start_price: float, target_date: str):
         if self.is_mongo:

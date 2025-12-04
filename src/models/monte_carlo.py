@@ -24,17 +24,36 @@ class Simulator:
         paths = np.zeros((self.n_sims, self.horizon + 1))
         paths[:, 0] = current_price
         
-        for t in range(1, self.horizon + 1):
-            z = np.random.normal(0, 1, self.n_sims)
-            # If mu is daily log return, then:
-            # P_t = P_{t-1} * exp(mu + sigma * z) ? 
-            # Or if mu is drift... let's assume mu is the predicted log return from LightGBM.
-            # And sigma is the recent volatility.
-            
-            # LightGBM predicts E[r_{t+1}].
-            # r_{t+1} ~ N(mu, sigma^2)
-            r = np.random.normal(mu, sigma, self.n_sims)
-            paths[:, t] = paths[:, t-1] * np.exp(r)
+        # Vectorized Simulation
+        # Generate all random returns at once: (n_sims, horizon)
+        # r ~ N(mu, sigma)
+        # Note: mu is daily expected log return.
+        
+        # We assume mu is constant over the horizon for this simple simulation,
+        # or we could decay it. For now, constant.
+        
+        # Adjust mu to be daily: input expected_return is total log return for horizon?
+        # Wait, in routes.py we pass `sim_return` which is `final_log_return` (total for horizon).
+        # So daily_mu = expected_return / horizon.
+        
+        daily_mu = expected_return / self.horizon
+        
+        # Generate random shocks
+        # shape: (n_sims, horizon)
+        shocks = np.random.normal(daily_mu, volatility, (self.n_sims, self.horizon))
+        
+        # Cumulative sum of log returns
+        cum_log_returns = np.cumsum(shocks, axis=1)
+        
+        # Calculate prices
+        # paths[:, 1:] = current_price * exp(cum_log_returns)
+        # We only strictly need the final prices for quantiles, but paths are good for charts if needed.
+        # For speed, we can just calculate final prices if we don't need intermediate paths.
+        # But let's keep paths structure for now, just vectorized.
+        
+        paths = np.zeros((self.n_sims, self.horizon + 1))
+        paths[:, 0] = current_price
+        paths[:, 1:] = current_price * np.exp(cum_log_returns)
             
         # Calculate quantiles
         final_prices = paths[:, -1]

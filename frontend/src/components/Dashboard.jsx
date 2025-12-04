@@ -76,21 +76,35 @@ const Dashboard = () => {
                         ))}
                     </div>
 
-                    <div className="simulation-section">
-                        <h3>Simulation Scenarios (10 Days)</h3>
-                        <div className="sim-cards">
-                            <div className="sim-card bearish">
-                                <h4>P10 (Bearish)</h4>
-                                <p>${data.simulation.p10.toFixed(2)}</p>
-                            </div>
-                            <div className="sim-card base">
-                                <h4>P50 (Base)</h4>
-                                <p>${data.simulation.p50.toFixed(2)}</p>
-                            </div>
-                            <div className="sim-card bullish">
-                                <h4>P90 (Bullish)</h4>
-                                <p>${data.simulation.p90.toFixed(2)}</p>
-                            </div>
+                    <div className="simulation-section" style={{ marginTop: '2rem' }}>
+                        <h3>Simulation & Risk Analysis</h3>
+                        <div className="table-container" style={{ overflowX: 'auto' }}>
+                            <table className="overview-table">
+                                <thead>
+                                    <tr>
+                                        <th>Horizon</th>
+                                        <th>ML Forecast (Target)</th>
+                                        <th>P10 (Bearish)</th>
+                                        <th>P50 (Median)</th>
+                                        <th>P90 (Bullish)</th>
+                                        <th>Risk Analysis</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {Object.entries(data.forecasts).map(([horizon, forecast]) => (
+                                        forecast && forecast.simulation ? (
+                                            <tr key={horizon}>
+                                                <td>{horizon}</td>
+                                                <td>${forecast.target_price.toFixed(2)}</td>
+                                                <td className="bearish-text">${forecast.simulation.p10.toFixed(2)}</td>
+                                                <td>${forecast.simulation.p50.toFixed(2)}</td>
+                                                <td className="bullish-text">${forecast.simulation.p90.toFixed(2)}</td>
+                                                <td style={{ fontStyle: 'italic', color: '#aaa' }}>{forecast.analysis}</td>
+                                            </tr>
+                                        ) : null
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 

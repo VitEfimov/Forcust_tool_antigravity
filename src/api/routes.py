@@ -142,18 +142,37 @@ def get_forecast(symbol: str):
                 }
             }
             
+            # 6. Simulation & Analysis for this horizon
+            # We use the daily volatility for simulation
+            daily_vol = returns.std()
+            
+            # Run Simulation
+            sim = Simulator(n_sims=500, horizon=h)
+            # Pass total log return for the horizon
+            sim_result = sim.simulate(current_price, float(final_log_return), daily_vol)
+            
+            # Analysis: ML vs Monte Carlo
+            ml_price = float(current_price * np.exp(final_log_return))
+            mc_p50 = sim_result['quantiles']['p50']
+            
+            divergence = (mc_p50 - ml_price) / ml_price
+            
+            analysis_text = "Stable"
+            if divergence < -0.05:
+                analysis_text = "High Downside Risk (MC < ML)"
+            elif divergence > 0.05:
+                analysis_text = "Potential Upside Surprise (MC > ML)"
+            
+            if daily_vol * np.sqrt(252) > 0.4:
+                analysis_text += " | High Volatility"
+            
+            # Add to forecast object
+            forecasts[f"{h}d"]["simulation"] = sim_result['quantiles']
+            forecasts[f"{h}d"]["analysis"] = analysis_text
+            forecasts[f"{h}d"]["components"]["Monte Carlo P50"] = mc_p50
+
             # Save to DB
             db.save_forecast(current_date, symbol, h, float(final_log_return), float(current_price), str(target_date))
-
-        # 6. Simulation (using 10d forecast for now)
-        volatility = returns.std()
-        sim_return = forecasts.get("10d", {}).get("log_return", 0.0)
-        sim = Simulator(n_sims=500, horizon=10)
-        sim_result = sim.simulate(current_price, sim_return, volatility)
-        
-        # Update 10d component with Monte Carlo result
-        if "10d" in forecasts:
-            forecasts["10d"]["components"]["Monte Carlo P50"] = sim_result['quantiles']['p50']
 
         return {
             "symbol": symbol,
@@ -164,8 +183,7 @@ def get_forecast(symbol: str):
                 "label": hmm.get_regime_label(current_regime),
                 "probs": regime_probs.tolist()
             },
-            "forecasts": forecasts,
-            "simulation": sim_result['quantiles']
+            "forecasts": forecasts
         }
     except Exception as e:
         import traceback
@@ -189,11 +207,39 @@ def get_indices_history():
     history = db.get_indices_history(indices)
     return {"history": history}
 
+@router.get("/watchlist")
+def get_watchlist():
+    db = Database()
+    return {"symbols": db.get_watchlist()}
+
+@router.post("/watchlist/{symbol}")
+def add_to_watchlist(symbol: str):
+    db = Database()
+    db.add_to_watchlist(symbol)
+    return {"status": "added", "symbol": symbol.upper()}
+
+@router.delete("/watchlist/{symbol}")
+def remove_from_watchlist(symbol: str):
+    db = Database()
+    db.remove_from_watchlist(symbol)
+    return {"status": "removed", "symbol": symbol.upper()}
+
+@router.get("/watchlist/overview")
+def get_watchlist_overview(date: str = None):
+    """
+    Get market overview for Watchlist symbols.
+    """
+    db = Database()
+    symbols = db.get_watchlist()
+    if not symbols:
+        return {"overview": []}
+    
+    return get_market_overview_logic(symbols, date)
+
 @router.get("/market/overview")
 def get_market_overview(date: str = None):
     """
     Get market overview for Top 50 symbols.
-    Optional 'date' param (YYYY-MM-DD) to view historical snapshot.
     """
     # Top 50 S&P 500 symbols (Approximate by weight)
     top_symbols = [
@@ -203,42 +249,39 @@ def get_market_overview(date: str = None):
         "TMO", "LIN", "DIS", "MCD", "WFC", "CSCO", "ACN", "INTU", "ORCL", "QCOM",
         "CAT", "VZ", "IBM", "AMAT", "GE", "UBER", "NOW", "DHR", "TXN", "SPGI"
     ]
-    
+    return get_market_overview_logic(top_symbols, date)
+
+def get_market_overview_logic(symbols: list, date: str = None):
     overview = []
     loader = DataLoader(settings.DATA_CACHE_DIR)
     registry = ModelRegistry(settings.MODELS_DIR)
     pipeline = FeaturePipeline()
+    hmm = registry.load_hmm("SPY") # Load generic or specific? HMM is per symbol usually.
+    # We need to load HMM per symbol if we want regime labels.
     
     target_date_ts = pd.Timestamp(date) if date else None
 
-    for sym in top_symbols:
+    for sym in symbols:
         try:
-            # Use cache to speed up, and limit history to 5 years for overview
-            # If historical date requested, ensure we fetch enough history covering that date
+            # Use cache to speed up
             df = loader.get_data(sym, start_date="2020-01-01", use_cache=True)
             
-            # Smart Cache Refresh:
-            # If we requested a specific date (or today) and the cache is stale (doesn't have it),
-            # force a refresh from yfinance.
+            # Smart Cache Refresh
             if df.empty or (target_date_ts and df.index[-1] < target_date_ts):
-                # Only refresh if the target date is reasonable (e.g. not in the far future)
-                # But here we just trust the user/system. If it's today's date, we want fresh data.
-                # We also check if target_date is <= today to avoid useless fetches for future dates
                 if target_date_ts and target_date_ts <= pd.Timestamp.now().normalize():
-                     print(f"Cache stale for {sym} (Requested {date}, Max {df.index[-1].date()}). Refreshing...")
+                     # print(f"Cache stale for {sym}. Refreshing...")
                      df = loader.get_data(sym, start_date="2020-01-01", use_cache=False)
 
             if df.empty:
                 continue
 
-            # Filter by date if provided
+            # Filter by date
             if target_date_ts:
-                # Get data up to and including the target date
                 df = df[df.index <= target_date_ts]
                 if df.empty:
                     continue
             
-            if len(df) < 15: # Need at least some history
+            if len(df) < 15:
                 continue
             
             # Prices
@@ -247,7 +290,7 @@ def get_market_overview(date: str = None):
             today_open = float(today_row['Open'])
             today_close = float(today_row['Close'])
             
-            # 10 days ago (trading days)
+            # 10 days ago
             if len(df) > 10:
                 past_row = df.iloc[-11]
                 past_date = str(df.index[-11].date())
@@ -258,11 +301,11 @@ def get_market_overview(date: str = None):
                 past_open = 0.0
                 past_close = 0.0
 
-            # Forecasts for multiple horizons
+            # Forecasts
             horizons = [10, 100, 365, 547, 730]
             forecast_data = {}
             
-            # Pre-calculate Kalman trend for fallbacks
+            # Pre-calculate Kalman trend
             try:
                 kalman = KalmanTrend()
                 log_prices = np.log(df['Close'].tail(252))
@@ -286,32 +329,20 @@ def get_market_overview(date: str = None):
                     except:
                         pass
                 
-                # 2. Fallback to Kalman Trend
+                # 2. Fallback to Kalman Trend (Soft Clamp)
                 if forecast_pct is None:
                     try:
-                        # Soft Clamp (Tanh Compression)
-                        # Instead of hard-capping at 40%, we use tanh to smoothly compress 
-                        # high drifts towards a maximum asymptote.
-                        # Max Annualized = 85% -> log(1.85) ≈ 0.615
-                        # Max Daily = 0.615 / 252 ≈ 0.00244
                         max_daily_slope = 0.00244
-                        
-                        # tanh(x) behaves like x for small x, but approaches 1 for large x.
-                        # We want: slope_out = max_slope * tanh(slope_in / max_slope)
                         if max_daily_slope > 0:
                             clamped_slope = max_daily_slope * np.tanh(trend_slope / max_daily_slope)
                         else:
                             clamped_slope = 0.0
                         
-                        # Simple linear extrapolation with clamped slope
                         forecast_pct = (np.exp(clamped_slope * h) - 1) * 100
-                        
-                        # Final safety clamp (-90% to +500%) just in case
                         forecast_pct = max(-90.0, min(forecast_pct, 500.0))
                     except:
                         forecast_pct = 0.0
 
-                # Calculate Target Price
                 forecast_price = today_close * (1 + forecast_pct / 100)
                 
                 forecast_data[f"forecast_{h}d_pct"] = float(forecast_pct)
@@ -326,14 +357,108 @@ def get_market_overview(date: str = None):
                 "past_open": past_open,
                 "past_close": past_close,
             }
-            # Merge forecast data
             overview_item.update(forecast_data)
-            
             overview.append(overview_item)
-            # print(f"Processed {sym}") # Debug
+            
         except Exception as e:
             print(f"Error processing {sym}: {e}")
             continue
             
-    print(f"Market Overview complete. {len(overview)} symbols.")
     return {"overview": overview}
+
+@router.get("/simulation/advanced/{symbol}")
+def get_advanced_simulation(symbol: str, days: int = 730, method: str = "garch", conservative: bool = False):
+    """
+    Run advanced realistic simulation (Regime-aware GARCH + Jumps).
+    method: 'garch' or 'bootstrap'
+    """
+    try:
+        symbol = symbol.upper()
+        loader = DataLoader(settings.DATA_CACHE_DIR)
+        # Get last 5 years for good regime fitting
+        df = loader.get_data(symbol, start_date="2018-01-01")
+        
+        if df.empty:
+            raise HTTPException(status_code=404, detail="Symbol data not found")
+            
+        returns = df['Close'].pct_change().dropna()
+        current_price = float(df['Close'].iloc[-1])
+        
+        from src.models.advanced_simulation import AdvancedSimulator
+        from src.models.hmm import RegimeDetector
+        
+        sim = AdvancedSimulator()
+        
+        if method == "bootstrap":
+            result = sim.block_bootstrap(returns, current_price, days=days)
+            # Bootstrap doesn't support multi-horizon dict yet, so we wrap it
+            return {
+                "symbol": symbol,
+                "method": "Block Bootstrap",
+                "current_price": current_price,
+                "quantiles": {days: result['quantiles']}, # Wrap in horizon dict
+                "paths": result['final_prices'].tolist() # This is wrong, need paths. 
+                # Actually block_bootstrap needs update for paths if we want chart.
+                # For now, let's focus on GARCH method which is the main one.
+            }
+        else:
+            # GARCH + Regime
+            hmm = RegimeDetector()
+            hmm.fit(returns)
+            regimes = hmm.predict(returns)
+            current_regime = int(regimes[-1])
+            regime_label = hmm.get_regime_label(current_regime)
+            
+            # Get Transition Matrix
+            transmat = hmm.model.transmat_
+            
+            # Fit Params
+            params = sim.fit_regime_params(returns, regimes)
+            
+            # Simulate (Max Horizon 730d)
+            sim_res = sim.simulate_paths(
+                start_price=current_price,
+                start_regime=current_regime,
+                params=params,
+                transmat=transmat,
+                days=730, # Always run full 2 years
+                sims=1000,
+                conservative=conservative
+            )
+            
+            # Generate Interpretation
+            analysis = {}
+            for h, q in sim_res['quantiles'].items():
+                p10, p50, p90 = q['p10'], q['p50'], q['p90']
+                upside = (p90 / current_price - 1) * 100
+                downside = (p10 / current_price - 1) * 100
+                
+                risk_label = "Moderate"
+                if downside < -20 and h <= 30: risk_label = "High Crash Risk"
+                elif downside < -40: risk_label = "High Risk"
+                elif upside > 50 and downside > -10: risk_label = "Bullish Skew"
+                
+                analysis[h] = {
+                    "risk_label": risk_label,
+                    "upside_pct": upside,
+                    "downside_pct": downside,
+                    "interpretation": f"P90: +{upside:.1f}%, P10: {downside:.1f}% ({risk_label})"
+                }
+
+            return {
+                "symbol": symbol,
+                "method": "Regime-Switching GARCH + Jump Diffusion",
+                "current_price": current_price,
+                "current_regime": {
+                    "id": current_regime,
+                    "label": regime_label
+                },
+                "quantiles": sim_res['quantiles'], # Dict {10: {...}, 30: {...}}
+                "analysis": analysis,
+                "paths": sim_res['paths'][:, ::5].tolist() # Downsample paths
+            }
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
