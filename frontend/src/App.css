@@ -1,0 +1,294 @@
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.search-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.search-form input {
+  padding: 0.5rem;
+  font-size: 1rem;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+
+.search-form button {
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  background-color: #646cff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.summary-card {
+  background: #1a1a1a;
+  padding: 2rem;
+  border-radius: 8px;
+  text-align: left;
+  border: 1px solid #333;
+}
+
+.quantiles {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 1rem;
+}
+
+.quantile-box {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  border-radius: 8px;
+  background: #2a2a2a;
+  min-width: 120px;
+}
+
+.quantile-box.bad {
+  border-bottom: 4px solid #ff4444;
+}
+
+.quantile-box.base {
+  border-bottom: 4px solid #888888;
+}
+
+.quantile-box.good {
+  border-bottom: 4px solid #44ff44;
+}
+
+.progress-bar {
+  display: flex;
+  height: 30px;
+  width: 100%;
+  background: #333;
+  border-radius: 15px;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+.navbar {
+  display: flex;
+  gap: 2rem;
+  justify-content: center;
+  padding: 1rem;
+  background: #2a2a2a;
+  margin-bottom: 2rem;
+  border-radius: 8px;
+}
+
+.navbar a {
+  color: white;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+.navbar a:hover {
+  text-decoration: underline;
+}
+
+.forecasts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.forecast-card {
+  background: #2a2a2a;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid #333;
+}
+
+.forecast-card.bullish {
+  border-top: 4px solid #44ff44;
+}
+
+.forecast-card.bearish {
+  border-top: 4px solid #ff4444;
+}
+
+.forecast-card.neutral {
+  border-top: 4px solid #888888;
+}
+
+.forecast-card .return {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.history-table th,
+.history-table td {
+  padding: 0.5rem;
+  border: 1px solid #333;
+  text-align: left;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.overview-card {
+  background: #2a2a2a;
+  padding: 1rem;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.overview-card.bullish {
+  color: #44ff44;
+}
+
+.overview-card.bearish {
+  color: #ff4444;
+}
+
+.progress-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.low-vol {
+  background-color: #4caf50;
+}
+
+.high-vol {
+  background-color: #f44336;
+}
+
+.indices-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+  background: #2a2a2a;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.indices-table th,
+.indices-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #444;
+  text-align: left;
+}
+
+.indices-table th {
+  background: #333;
+  color: #ddd;
+}
+
+.overview-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+  background: #2a2a2a;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 0.9rem;
+}
+
+.overview-table th,
+.overview-table td {
+  padding: 0.5rem;
+  border-bottom: 1px solid #444;
+  text-align: right;
+}
+
+.overview-table th {
+  background: #333;
+  color: #ddd;
+  text-align: right;
+}
+
+.overview-table td.symbol-cell {
+  text-align: left;
+  font-weight: bold;
+  color: #fff;
+}
+
+.overview-table th:first-child {
+  text-align: left;
+}
+
+.bullish-text {
+  color: #44ff44;
+}
+
+.bearish-text {
+  color: #ff4444;
+}
+
+.error {
+  color: #ff4444;
+  padding: 1rem;
+  border: 1px solid #ff4444;
+  border-radius: 4px;
+}
+
+/* Market Overview Header */
+.overview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.date-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.date-controls button {
+  padding: 8px 12px;
+  background-color: #333;
+  border: 1px solid #555;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.date-controls button:hover {
+  background-color: #444;
+}
+
+.date-picker {
+  padding: 8px;
+  background-color: #222;
+  border: 1px solid #555;
+  color: #fff;
+  border-radius: 4px;
+  font-family: inherit;
+}

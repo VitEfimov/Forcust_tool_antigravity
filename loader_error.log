@@ -1,0 +1,31 @@
+Error fetching AAPL: Unable to find a usable engine; tried using: 'pyarrow', 'fastparquet'.
+A suitable version of pyarrow or fastparquet is required for parquet support.
+Trying to import the above resulted in these errors:
+ - Missing optional dependency 'pyarrow'. pyarrow is required for parquet support. Use pip or conda to install pyarrow.
+ - Missing optional dependency 'fastparquet'. fastparquet is required for parquet support. Use pip or conda to install fastparquet.
+Traceback (most recent call last):
+  File "C:\Users\15717\Desktop\Forcust_tool_antigravity\src\data\loader.py", line 38, in get_data
+    self.cache.save(symbol, df)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "C:\Users\15717\Desktop\Forcust_tool_antigravity\src\data\cache.py", line 21, in save
+    data.to_parquet(file_path)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\15717\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\util\_decorators.py", line 333, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\15717\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\frame.py", line 3113, in to_parquet
+    return to_parquet(
+        self,
+    ...<6 lines>...
+        **kwargs,
+    )
+  File "C:\Users\15717\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\io\parquet.py", line 476, in to_parquet
+    impl = get_engine(engine)
+  File "C:\Users\15717\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\io\parquet.py", line 67, in get_engine
+    raise ImportError(
+    ...<7 lines>...
+    )
+ImportError: Unable to find a usable engine; tried using: 'pyarrow', 'fastparquet'.
+A suitable version of pyarrow or fastparquet is required for parquet support.
+Trying to import the above resulted in these errors:
+ - Missing optional dependency 'pyarrow'. pyarrow is required for parquet support. Use pip or conda to install pyarrow.
+ - Missing optional dependency 'fastparquet'. fastparquet is required for parquet support. Use pip or conda to install fastparquet.
