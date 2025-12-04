@@ -14,7 +14,7 @@ class MongoRepository(Generic[T]):
         self.model_cls = model_cls
 
     def create(self, item: T) -> T:
-        data = item.dict(by_alias=True, exclude={"id"})
+        data = item.model_dump(by_alias=True, exclude={"id"})
         result = self.collection.insert_one(data)
         item.id = str(result.inserted_id)
         return item

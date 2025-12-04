@@ -194,5 +194,5 @@ class SimulationService:
             "symbol": symbol,
             "date": date,
             "regime": regime_label,
-            "runs": [run.dict() for run in runs]
+            "runs": [run.model_dump() for run in runs]
         }

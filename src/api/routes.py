@@ -51,7 +51,7 @@ def get_market_overview(date: Optional[str] = None):
             # This will fetch from DB or compute & save
             ov = market_service.get_overview(sym, date)
             # Convert Pydantic to dict
-            ov_dict = ov.dict()
+            ov_dict = ov.model_dump()
             # Add legacy fields for frontend compatibility if needed
             # Frontend expects: symbol, date, price, volatility, regime, trend
             ov_dict['trend'] = "Neutral" # Placeholder
