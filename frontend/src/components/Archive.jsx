@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import API_URL from '../config';
 
 const Archive = () => {
     const [symbol, setSymbol] = useState('SPY');
@@ -10,7 +11,7 @@ const Archive = () => {
     const fetchHistory = async () => {
         setLoading(true);
         try {
-            const response = await axios.get(`http://localhost:8000/archive/${symbol}`);
+            const response = await axios.get(`${API_URL}/archive/${symbol}`);
             setHistory(response.data.history);
         } catch (err) {
             console.error(err);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
+import API_URL from '../config';
 
 const Dashboard = () => {
     const [symbol, setSymbol] = useState('SPY');
@@ -12,7 +13,7 @@ const Dashboard = () => {
         setLoading(true);
         setError(null);
         try {
-            const response = await axios.get(`http://localhost:8000/forecast/${symbol}`);
+            const response = await axios.get(`${API_URL}/forecast/${symbol}`);
             setData(response.data);
         } catch (err) {
             setError(err.response?.data?.detail || 'Failed to fetch data');

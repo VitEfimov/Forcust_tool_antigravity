@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import API_URL from '../config';
 
 const MarketOverview = () => {
     const [overview, setOverview] = useState([]);
@@ -10,8 +11,8 @@ const MarketOverview = () => {
         setLoading(true);
         try {
             const url = date
-                ? `http://localhost:8000/market/overview?date=${date}`
-                : 'http://localhost:8000/market/overview';
+                ? `${API_URL}/market/overview?date=${date}`
+                : `${API_URL}/market/overview`;
             const response = await axios.get(url);
             setOverview(response.data.overview);
         } catch (err) {

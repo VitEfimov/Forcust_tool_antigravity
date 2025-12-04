@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import API_URL from '../config';
 
 const Indices = () => {
     const [history, setHistory] = useState([]);
@@ -9,7 +10,7 @@ const Indices = () => {
         const fetchHistory = async () => {
             setLoading(true);
             try {
-                const response = await axios.get('http://localhost:8000/indices/history');
+                const response = await axios.get(`${API_URL}/indices/history`);
                 setHistory(response.data.history);
             } catch (err) {
                 console.error(err);

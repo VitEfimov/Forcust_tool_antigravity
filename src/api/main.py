@@ -25,6 +25,10 @@ app.add_middleware(
 
 app.include_router(router)
 
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "Antigravity API is running"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000, reload=True)

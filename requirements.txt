@@ -13,6 +13,8 @@ pydantic
 requests
 pytest
 pyarrow
+pymongo
+dnspython
 arch
 torch
 filterpy
