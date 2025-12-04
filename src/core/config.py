@@ -12,5 +12,8 @@ class Settings:
     MINI_CYCLE_DAYS: int = 1008
     # Business cycle: 10 years * 252 days = 2520 days
     BUSINESS_CYCLE_DAYS: int = 2520
+    
+    # Database
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///data/forecasts.db")
 
 settings = Settings()

@@ -46,9 +46,15 @@ const MarketOverview = () => {
                         type="date"
                         value={selectedDate}
                         onChange={handleDateChange}
+                        max={new Date().toISOString().split('T')[0]}
                         className="date-picker"
                     />
-                    <button onClick={() => changeDate(1)}>Next Day →</button>
+                    <button
+                        onClick={() => changeDate(1)}
+                        disabled={selectedDate >= new Date().toISOString().split('T')[0]}
+                    >
+                        Next Day →
+                    </button>
                     <button onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}>Today</button>
                 </div>
             </div>

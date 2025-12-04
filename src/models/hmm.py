@@ -23,11 +23,48 @@ class RegimeDetector:
         self.model.fit(X_clean)
         self.is_fitted = True
         
-        # Sort states by mean return (or volatility) to make them interpretable
-        # Let's sort by variance (volatility) - State 0 = Low Vol, State 1 = High Vol
-        # Or mean return. Let's stick to variance for "Regime".
-        # Actually, let's just keep it as is for now, but we could reorder.
+        # Identify states based on Volatility (Variance)
+        # self.model.covars_ is shape (n_components, 1, 1) for 'full' covariance on 1D data
+        variances = np.array([self.model.covars_[i][0][0] for i in range(self.n_components)])
+        means = np.array([self.model.means_[i][0] for i in range(self.n_components)])
         
+        # Sort indices by variance: 0=Low Vol, 1=Med, 2=High
+        self.sorted_indices = np.argsort(variances)
+        
+    def get_regime_label(self, state_idx: int) -> str:
+        """
+        Return a human-readable label for the state.
+        Assumes 3 components:
+        0 (Lowest Vol) -> "Bull Market (Low Vol)"
+        1 (Med Vol) -> "Transition / Recovery"
+        2 (Highest Vol) -> "Bear / Crash (High Vol)"
+        """
+        if not self.is_fitted:
+            return "Unknown"
+            
+        # Map the raw state_idx to its rank in volatility
+        # sorted_indices[0] is the index of the lowest volatility state
+        # We need to find where state_idx is in sorted_indices
+        
+        # If state_idx == sorted_indices[0] -> Rank 0 (Low Vol)
+        # If state_idx == sorted_indices[-1] -> Rank N (High Vol)
+        
+        rank = np.where(self.sorted_indices == state_idx)[0][0]
+        
+        if self.n_components == 2:
+            if rank == 0: return "Bull Market (Low Vol)"
+            return "Bear Market (High Vol)"
+            
+        elif self.n_components == 3:
+            if rank == 0: return "Bull Market (Low Vol)"
+            if rank == 1: return "Transition / Recovery"
+            return "Bear / Crash (High Vol)"
+            
+        else:
+            if rank == 0: return "Low Volatility"
+            if rank == self.n_components - 1: return "High Volatility / Crash"
+            return "Transitional"
+
     def predict(self, returns: pd.Series) -> np.ndarray:
         """
         Predict states for the given returns.
@@ -36,9 +73,6 @@ class RegimeDetector:
             raise ValueError("Model not fitted")
             
         X = returns.values.reshape(-1, 1)
-        # Fill NaNs with 0 or drop? HMM doesn't like NaNs.
-        # For prediction, we need to match indices.
-        # We'll forward fill or fill 0.
         X = np.nan_to_num(X)
         
         return self.model.predict(X)
@@ -55,8 +89,17 @@ class RegimeDetector:
         return self.model.predict_proba(X)
 
     def save(self, path: str):
-        joblib.dump(self.model, path)
+        joblib.dump({'model': self.model, 'sorted_indices': getattr(self, 'sorted_indices', None)}, path)
 
     def load(self, path: str):
-        self.model = joblib.load(path)
+        data = joblib.load(path)
+        if isinstance(data, dict):
+            self.model = data['model']
+            self.sorted_indices = data.get('sorted_indices')
+        else:
+            self.model = data # Legacy support
+            # Re-infer sorted indices if missing (not ideal but fallback)
+            variances = np.array([self.model.covars_[i][0][0] for i in range(self.model.n_components)])
+            self.sorted_indices = np.argsort(variances)
+            
         self.is_fitted = True

@@ -55,7 +55,7 @@ const Dashboard = () => {
                         <h2>{data.symbol}</h2>
                         <p>Date: {data.date}</p>
                         <p>Current Price: ${data.current_price.toFixed(2)}</p>
-                        <p>Regime: {data.regime.current === 0 ? 'Low Volatility' : 'High Volatility'}</p>
+                        <p>Regime: {data.regime.label || (data.regime.current === 0 ? 'Low Volatility' : 'High Volatility')}</p>
                     </div>
 
                     <div className="forecasts-grid">
@@ -76,42 +76,73 @@ const Dashboard = () => {
                         ))}
                     </div>
 
-                    <div className="chart-container">
+                    <div className="simulation-section">
                         <h3>Simulation Scenarios (10 Days)</h3>
-                        <div className="quantiles">
-                            <div className="quantile-box bad">
-                                <span>P10 (Bearish)</span>
-                                <span>${data.simulation.p10.toFixed(2)}</span>
+                        <div className="sim-cards">
+                            <div className="sim-card bearish">
+                                <h4>P10 (Bearish)</h4>
+                                <p>${data.simulation.p10.toFixed(2)}</p>
                             </div>
-                            <div className="quantile-box base">
-                                <span>P50 (Base)</span>
-                                <span>${data.simulation.p50.toFixed(2)}</span>
+                            <div className="sim-card base">
+                                <h4>P50 (Base)</h4>
+                                <p>${data.simulation.p50.toFixed(2)}</p>
                             </div>
-                            <div className="quantile-box good">
-                                <span>P90 (Bullish)</span>
-                                <span>${data.simulation.p90.toFixed(2)}</span>
+                            <div className="sim-card bullish">
+                                <h4>P90 (Bullish)</h4>
+                                <p>${data.simulation.p90.toFixed(2)}</p>
                             </div>
                         </div>
                     </div>
 
-                    <div className="regime-info">
+                    <div className="model-breakdown-section" style={{ marginTop: '2rem' }}>
+                        <h3>Model Contribution Breakdown (10d Horizon)</h3>
+                        <table className="overview-table">
+                            <thead>
+                                <tr>
+                                    <th>Model Component</th>
+                                    <th>Raw Output (Log Return / Value)</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {data.forecasts["10d"] && data.forecasts["10d"].components && Object.entries(data.forecasts["10d"].components).map(([key, value]) => (
+                                    <tr key={key}>
+                                        <td>{key}</td>
+                                        <td>{typeof value === 'number' ? value.toFixed(4) : value}</td>
+                                        <td>
+                                            {key === 'LightGBM' && 'Gradient Boosting Regressor'}
+                                            {key === 'Transformer' && 'Deep Learning Sequence Model'}
+                                            {key === 'GARCH Volatility' && 'Volatility Clustering Model'}
+                                            {key === 'Kalman Trend' && 'Noise-Filtered Trend Slope'}
+                                            {key === 'HMM Regime' && 'Market Regime Context'}
+                                            {key === 'Copula Adjustment' && 'Multi-Asset Correlation Stress'}
+                                            {key === 'Monte Carlo P50' && 'Probabilistic Median Price'}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="regime-section">
                         <h3>Regime Probabilities</h3>
-                        <div className="progress-bar">
+                        <div className="regime-bar">
                             <div
-                                className="progress-segment low-vol"
+                                className="regime-segment low-vol"
                                 style={{ width: `${data.regime.probs[0] * 100}%` }}
                                 title={`Low Vol: ${(data.regime.probs[0] * 100).toFixed(1)}%`}
                             >
                                 Low Vol
                             </div>
                             <div
-                                className="progress-segment high-vol"
+                                className="regime-segment high-vol"
                                 style={{ width: `${data.regime.probs[1] * 100}%` }}
                                 title={`High Vol: ${(data.regime.probs[1] * 100).toFixed(1)}%`}
                             >
                                 High Vol
                             </div>
                         </div>
+                        <p>Current Regime: <strong>{data.regime.label || (data.regime.current === 0 ? 'Low Volatility' : 'High Volatility')}</strong></p>
                     </div>
                 </div>
             )}

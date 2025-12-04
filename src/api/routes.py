@@ -132,10 +132,13 @@ def get_forecast(symbol: str):
                 "target_price": float(current_price * np.exp(final_log_return)),
                 "target_date": str(target_date),
                 "components": {
-                    "lgbm": float(lgb_pred),
-                    "transformer": float(trans_pred),
-                    "volatility": float(vol_pred),
-                    "trend_slope": float(trend_slope)
+                    "LightGBM": float(lgb_pred),
+                    "Transformer": float(trans_pred),
+                    "GARCH Volatility": float(vol_pred),
+                    "Kalman Trend": float(trend_slope),
+                    "HMM Regime": hmm.get_regime_label(current_regime),
+                    "Copula Adjustment": 0.0, # Placeholder until Copula is fully active
+                    "Monte Carlo P50": 0.0 # Placeholder, calculated below
                 }
             }
             
@@ -147,6 +150,10 @@ def get_forecast(symbol: str):
         sim_return = forecasts.get("10d", {}).get("log_return", 0.0)
         sim = Simulator(n_sims=500, horizon=10)
         sim_result = sim.simulate(current_price, sim_return, volatility)
+        
+        # Update 10d component with Monte Carlo result
+        if "10d" in forecasts:
+            forecasts["10d"]["components"]["Monte Carlo P50"] = sim_result['quantiles']['p50']
 
         return {
             "symbol": symbol,
@@ -154,6 +161,7 @@ def get_forecast(symbol: str):
             "current_price": float(current_price),
             "regime": {
                 "current": current_regime,
+                "label": hmm.get_regime_label(current_regime),
                 "probs": regime_probs.tolist()
             },
             "forecasts": forecasts,
