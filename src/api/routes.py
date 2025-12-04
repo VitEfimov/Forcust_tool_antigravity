@@ -1,30 +1,3 @@
-from fastapi import APIRouter, HTTPException, Query
-from typing import List, Optional, Dict, Any
-from datetime import datetime
-import pandas as pd
-import numpy as np
-
-# New Architecture Imports
-from src.services.logic import MarketService, SimulationService
-from src.core.repository import WishlistRepository
-from src.core.models import WishlistItem
-
-# Legacy Imports (for /forecast/{symbol})
-from src.data.loader import DataLoader
-from src.features.pipeline import FeaturePipeline
-from src.models.registry import ModelRegistry
-from src.models.lightgbm_forecaster import ForecastModel
-from src.models.monte_carlo import Simulator
-from src.models.hmm import RegimeDetector
-from src.models.ensemble import EnsembleModel
-from src.models.kalman import KalmanTrend
-from src.core.config import settings
-from src.core.database import Database
-
-router = APIRouter()
-
-# Initialize Services
-market_service = MarketService()
 simulation_service = SimulationService()
 wishlist_repo = WishlistRepository()
 
@@ -236,6 +209,13 @@ def get_forecast(symbol: str):
     """
     Legacy forecast endpoint for Dashboard.
     """
+    # Lazy imports to save memory on startup
+    from src.models.lightgbm_forecaster import ForecastModel
+    from src.models.monte_carlo import Simulator
+    from src.models.ensemble import EnsembleModel
+    from src.models.kalman_filter import KalmanTrend
+    from src.models.transformer_model import TransformerForecaster
+
     loader = DataLoader(settings.DATA_CACHE_DIR)
     pipeline = FeaturePipeline()
     registry = ModelRegistry(settings.MODELS_DIR)
@@ -266,6 +246,7 @@ def get_forecast(symbol: str):
         trend_state = kalman.get_current_state()
         trend_slope = trend_state['trend_slope']
 
+        from src.models.transformer_model import TransformerForecaster
         transformer = registry.load_transformer(symbol)
 
         horizons = [10, 100, 365, 547, 730]
