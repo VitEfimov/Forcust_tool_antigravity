@@ -281,17 +281,25 @@ def get_market_overview(date: str = None):
                 # 2. Fallback to Kalman Trend
                 if forecast_pct is None:
                     try:
-                        # Cap the slope to prevent unrealistic long-term extrapolations
-                        # Max annualized return = 40% -> log(1.40) ≈ 0.336
-                        # Max daily slope = 0.336 / 252 ≈ 0.00133
-                        max_slope = 0.00133
-                        clamped_slope = max(-max_slope, min(trend_slope, max_slope))
+                        # Soft Clamp (Tanh Compression)
+                        # Instead of hard-capping at 40%, we use tanh to smoothly compress 
+                        # high drifts towards a maximum asymptote.
+                        # Max Annualized = 85% -> log(1.85) ≈ 0.615
+                        # Max Daily = 0.615 / 252 ≈ 0.00244
+                        max_daily_slope = 0.00244
+                        
+                        # tanh(x) behaves like x for small x, but approaches 1 for large x.
+                        # We want: slope_out = max_slope * tanh(slope_in / max_slope)
+                        if max_daily_slope > 0:
+                            clamped_slope = max_daily_slope * np.tanh(trend_slope / max_daily_slope)
+                        else:
+                            clamped_slope = 0.0
                         
                         # Simple linear extrapolation with clamped slope
                         forecast_pct = (np.exp(clamped_slope * h) - 1) * 100
                         
-                        # Final safety clamp (-90% to +300%)
-                        forecast_pct = max(-90.0, min(forecast_pct, 300.0))
+                        # Final safety clamp (-90% to +500%) just in case
+                        forecast_pct = max(-90.0, min(forecast_pct, 500.0))
                     except:
                         forecast_pct = 0.0
 
