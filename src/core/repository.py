@@ -38,6 +38,9 @@ class MongoRepository(Generic[T]):
     def delete(self, query: dict):
         self.collection.delete_one(query)
 
+    def delete_many(self, query: dict):
+        self.collection.delete_many(query)
+
 class MarketRepository(MongoRepository[MarketOverview]):
     def __init__(self):
         super().__init__("market_overview", MarketOverview)
