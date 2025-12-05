@@ -1,7 +1,12 @@
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# Explicitly load .env from project root
+env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
+print(f"Loading config from {env_path}")
+print(f"DATABASE_URL: {os.getenv('DATABASE_URL')}")
 
 class Settings:
     PROJECT_NAME: str = "Antigravity"

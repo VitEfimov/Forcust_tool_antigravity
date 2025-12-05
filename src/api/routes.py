@@ -1,3 +1,15 @@
+from fastapi import APIRouter, HTTPException, Query
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+import pandas as pd
+import numpy as np
+
+from src.services.logic import MarketService, SimulationService
+from src.core.repository import WishlistRepository
+
+router = APIRouter()
+
+market_service = MarketService()
 simulation_service = SimulationService()
 wishlist_repo = WishlistRepository()
 
