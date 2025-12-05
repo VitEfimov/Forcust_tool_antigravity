@@ -6,7 +6,7 @@ from src.core.repository import MarketRepository, SimulationRepository, Wishlist
 from src.core.models import MarketOverview, SimulationRun, WishlistItem
 from src.data.loader import DataLoader
 from src.core.config import settings
-from src.models.advanced_simulation import AdvancedSimulator
+
 from src.models.hmm import RegimeDetector
 
 def needs_refresh(last_update: datetime) -> bool:
@@ -114,7 +114,13 @@ class SimulationService:
         self.repo = SimulationRepository()
         self.market_repo = MarketRepository()
         self.loader = DataLoader(settings.DATA_CACHE_DIR)
-        self.simulator = AdvancedSimulator()
+        self.simulator = None
+
+    def _get_simulator(self):
+        if not self.simulator:
+            from src.models.advanced_simulation import AdvancedSimulator
+            self.simulator = AdvancedSimulator()
+        return self.simulator
 
     def run_simulation(self, symbol: str, date: str, horizons: List[int] = [10, 30, 100, 365, 547, 730]) -> Dict[str, Any]:
         # Check freshness for simulation too?
@@ -154,7 +160,7 @@ class SimulationService:
         current_regime = int(regimes[-1])
         regime_label = hmm.get_regime_label(current_regime)
         transmat = hmm.model.transmat_
-        params = self.simulator.fit_regime_params(returns, regimes)
+        params = self._get_simulator().fit_regime_params(returns, regimes)
 
         for h in horizons:
             # 2. Check DB (unless forced refresh which deleted them)
@@ -164,7 +170,7 @@ class SimulationService:
                 continue
 
             # 3. Compute
-            sim_res = self.simulator.simulate_paths(
+            sim_res = self._get_simulator().simulate_paths(
                 start_price=current_price,
                 start_regime=current_regime,
                 params=params,

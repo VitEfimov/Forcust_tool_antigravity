@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
-from arch import arch_model
-from scipy.stats import t, norm
+
 import joblib
 import os
 
@@ -41,6 +40,7 @@ class AdvancedSimulator:
 
             try:
                 # Fit GARCH(1,1) with Student-t errors
+                from arch import arch_model
                 am = arch_model(rrets, vol='Garch', p=1, o=0, q=1, dist='t')
                 res = am.fit(disp='off')
                 
@@ -106,6 +106,7 @@ class AdvancedSimulator:
                     vol = vol_pct / 100.0
                     
                     # 2. Draw return from Student-t
+                    from scipy.stats import t
                     df = max(3, p['t_df'])
                     if conservative:
                         df = max(df, 8)

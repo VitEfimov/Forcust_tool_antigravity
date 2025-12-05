@@ -21,7 +21,15 @@ def seed_database(days_back=7, symbols=None):
     
     if symbols is None:
         # Top 10 for speed
-        symbols = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "SPY", "QQQ", "IWM"]
+        # Top 50 S&P 500 Symbols
+        symbols = [
+            "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "BRK-B", "LLY", "AVGO",
+            "JPM", "XOM", "UNH", "V", "PG", "MA", "COST", "JNJ", "HD", "MRK",
+            "ABBV", "CVX", "BAC", "WMT", "CRM", "KO", "AMD", "PEP", "TMO", "LIN",
+            "ACN", "MCD", "ADBE", "DIS", "CSCO", "ABT", "DHR", "QCOM", "INTU", "VZ",
+            "INTC", "CMCSA", "PFE", "NFLX", "NKE", "TXN", "PM", "MS", "CAT", "RTX",
+            "SPY", "QQQ", "IWM", "DIA", "GLD", "BTC-USD", "ETH-USD"
+        ]
 
     db = Database()
     loader = DataLoader(settings.DATA_CACHE_DIR)
