@@ -6,6 +6,12 @@ import numpy as np
 
 from src.services.logic import MarketService, SimulationService
 from src.core.repository import WishlistRepository
+from src.core.database import Database
+from src.data.loader import DataLoader
+from src.features.pipeline import FeaturePipeline
+from src.models.registry import ModelRegistry
+from src.models.hmm import RegimeDetector
+from src.core.config import settings
 
 router = APIRouter()
 

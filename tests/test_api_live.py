@@ -1,6 +1,7 @@
 import requests
 import sys
 import json
+import time
 
 BASE_URL = "http://localhost:8001"
 
@@ -32,7 +33,10 @@ def run_tests():
     ok, data = test_endpoint("Watchlist", f"{BASE_URL}/watchlist")
     
     # 3. Market Overview
+    start = time.time()
     ok, data = test_endpoint("Market Overview", f"{BASE_URL}/market/overview")
+    elapsed = time.time() - start
+    print(f"⏱️ Market Overview took {elapsed:.2f} seconds")
     if ok and len(data.get('overview', [])) == 0:
         print("⚠️  Warning: Market Overview returned empty list. DB might be empty.")
 

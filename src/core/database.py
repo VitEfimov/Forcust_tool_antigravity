@@ -14,7 +14,10 @@ class Database:
         if self.is_mongo:
             import pymongo
             self.client = pymongo.MongoClient(self.db_url)
-            self.db = self.client.get_default_database()
+            try:
+                self.db = self.client.get_default_database()
+            except pymongo.errors.ConfigurationError:
+                self.db = self.client.get_database("forcast_antigravity")
             self.forecasts = self.db.forecasts
         else:
             # SQLite fallback
