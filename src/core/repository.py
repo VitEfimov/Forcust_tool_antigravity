@@ -9,7 +9,11 @@ T = TypeVar('T', bound='MongoBaseModel')
 class MongoRepository(Generic[T]):
     def __init__(self, collection_name: str, model_cls: Type[T]):
         self.client = pymongo.MongoClient(settings.DATABASE_URL)
-        self.db = self.client.get_default_database()
+        try:
+            self.db = self.client.get_default_database()
+        except pymongo.errors.ConfigurationError:
+            # Fallback if no database name in URL
+            self.db = self.client.get_database("forcast_antigravity")
         self.collection = self.db[collection_name]
         self.model_cls = model_cls
 
