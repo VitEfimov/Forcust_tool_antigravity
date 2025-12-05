@@ -19,3 +19,4 @@ arch
 torch
 filterpy
 copulas
+python-dotenv
