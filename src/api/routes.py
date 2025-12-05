@@ -5,8 +5,8 @@ import pandas as pd
 import numpy as np
 
 from src.services.logic import MarketService, SimulationService
-from src.core.repository import WishlistRepository
-from src.core.database import Database
+# from src.core.repository import WishlistRepository
+# from src.core.database import Database
 from src.data.loader import DataLoader
 from src.features.pipeline import FeaturePipeline
 from src.models.registry import ModelRegistry
@@ -17,7 +17,7 @@ router = APIRouter()
 
 market_service = MarketService()
 simulation_service = SimulationService()
-wishlist_repo = WishlistRepository()
+# wishlist_repo = WishlistRepository()
 
 # ------------------------------------------------------------------
 # NEW ARCHITECTURE ENDPOINTS
@@ -31,10 +31,11 @@ def get_market_overview(date: Optional[str] = None):
     if not date:
         date = datetime.now().strftime("%Y-%m-%d")
         
-    symbols = wishlist_repo.get_all_symbols()
-    if not symbols:
-        # Default symbols if watchlist empty
-        symbols = ["SPY", "QQQ", "IWM", "DIA", "GLD", "BTC-USD", "ETH-USD"]
+    # symbols = wishlist_repo.get_all_symbols()
+    symbols = ["SPY", "QQQ", "IWM", "DIA", "GLD", "BTC-USD", "ETH-USD", "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA"]
+    # if not symbols:
+    #     # Default symbols if watchlist empty
+    #     symbols = ["SPY", "QQQ", "IWM", "DIA", "GLD", "BTC-USD", "ETH-USD"]
         
     overview = []
     for sym in symbols:
@@ -194,21 +195,17 @@ def get_date_metadata(symbol: Optional[str] = None):
 # Wishlist Endpoints
 @router.get("/watchlist")
 def get_watchlist():
-    items = wishlist_repo.find_many({}, sort=[("symbol", 1)])
-    return [item.symbol for item in items]
+    # items = wishlist_repo.find_many({}, sort=[("symbol", 1)])
+    # return [item.symbol for item in items]
+    return ["SPY", "QQQ", "IWM", "DIA", "GLD", "BTC-USD", "ETH-USD", "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA"]
 
 @router.post("/watchlist/{symbol}")
 def add_to_watchlist(symbol: str):
-    symbol = symbol.upper()
-    if not wishlist_repo.find_one({"symbol": symbol}):
-        wishlist_repo.create(WishlistItem(symbol=symbol))
-    return {"status": "added", "symbol": symbol}
+    return {"status": "added (mock)", "symbol": symbol}
 
 @router.delete("/watchlist/{symbol}")
 def remove_from_watchlist(symbol: str):
-    symbol = symbol.upper()
-    wishlist_repo.delete({"symbol": symbol})
-    return {"status": "removed", "symbol": symbol}
+    return {"status": "removed (mock)", "symbol": symbol}
 
 @router.get("/watchlist/overview")
 def get_watchlist_overview(date: Optional[str] = None):
@@ -237,7 +234,7 @@ def get_forecast(symbol: str):
     loader = DataLoader(settings.DATA_CACHE_DIR)
     pipeline = FeaturePipeline()
     registry = ModelRegistry(settings.MODELS_DIR)
-    db = Database()
+    # db = Database()
     ensemble = EnsembleModel()
 
     try:
@@ -331,7 +328,7 @@ def get_forecast(symbol: str):
             forecasts[f"{h}d"]["analysis"] = analysis_text
             forecasts[f"{h}d"]["components"]["Monte Carlo P50"] = mc_p50
 
-            db.save_forecast(current_date, symbol, h, float(final_log_return), float(current_price), str(target_date))
+            # db.save_forecast(current_date, symbol, h, float(final_log_return), float(current_price), str(target_date))
 
         return {
             "symbol": symbol,
@@ -351,13 +348,13 @@ def get_forecast(symbol: str):
 
 @router.get("/archive/{symbol}")
 def get_archive(symbol: str):
-    db = Database()
-    history = db.get_history(symbol)
-    return {"symbol": symbol, "history": history}
+    # db = Database()
+    # history = db.get_history(symbol)
+    return {"symbol": symbol, "history": []}
 
 @router.get("/indices/history")
 def get_indices_history():
-    db = Database()
-    indices = ["SPY", "QQQ", "DIA", "IWM", "^VIX"]
-    history = db.get_indices_history(indices)
-    return {"history": history}
+    # db = Database()
+    # indices = ["SPY", "QQQ", "DIA", "IWM", "^VIX"]
+    # history = db.get_indices_history(indices)
+    return {"history": []}

@@ -5,7 +5,7 @@ from ..features.pipeline import FeaturePipeline
 from ..models.hmm import RegimeDetector
 from ..models.lightgbm_forecaster import ForecastModel
 from ..models.registry import ModelRegistry
-from ..core.database import Database
+# from ..core.database import Database
 from .config import settings
 import pandas as pd
 
@@ -71,8 +71,8 @@ def update_job():
         # 7. Update Actuals in DB (Analysis Step)
         current_price = df['Close'].iloc[-1]
         current_date = str(df.index[-1].date())
-        db = Database()
-        db.update_actuals(symbol, current_date, float(current_price))
+        # db = Database()
+        # db.update_actuals(symbol, current_date, float(current_price))
         
     print("Daily update job completed.")
 
