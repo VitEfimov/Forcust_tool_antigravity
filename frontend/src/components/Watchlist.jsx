@@ -27,7 +27,7 @@ const Watchlist = () => {
     const fetchWatchlist = async () => {
         try {
             const response = await axios.get(`${API_URL}/watchlist`);
-            setSymbols(response.data.symbols);
+            setSymbols(response.data);
         } catch (err) {
             console.error("Failed to fetch watchlist", err);
         }
