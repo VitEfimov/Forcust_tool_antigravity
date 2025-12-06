@@ -17,7 +17,11 @@ router = APIRouter()
 
 market_service = MarketService()
 simulation_service = SimulationService()
-wishlist_repo = WishlistRepository()
+try:
+    wishlist_repo = WishlistRepository()
+except Exception as e:
+    print(f"Warning: WishlistRepository init failed: {e}")
+    wishlist_repo = None
 
 # ------------------------------------------------------------------
 # NEW ARCHITECTURE ENDPOINTS
@@ -31,10 +35,16 @@ def get_market_overview(date: Optional[str] = None):
     if not date:
         date = datetime.now().strftime("%Y-%m-%d")
         
-    symbols = wishlist_repo.get_all_symbols()
+    symbols = []
+    if wishlist_repo:
+        try:
+            symbols = wishlist_repo.get_all_symbols()
+        except Exception as e:
+            print(f"Warning: Wishlist fetch failed: {e}")
+            
     if not symbols:
-        # Default symbols if watchlist empty
-        symbols = ["SPY", "QQQ", "IWM", "DIA", "GLD", "BTC-USD", "ETH-USD"]
+        # Default symbols if watchlist empty or DB failed
+        symbols = ["SPY", "QQQ", "IWM", "DIA", "GLD", "BTC-USD", "ETH-USD", "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA"]
         
     overview = []
     for sym in symbols:

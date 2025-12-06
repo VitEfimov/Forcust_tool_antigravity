@@ -33,20 +33,26 @@ def needs_refresh(last_update: datetime) -> bool:
 
 class MarketService:
     def __init__(self):
-        self.repo = MarketRepository()
+        try:
+            self.repo = MarketRepository()
+        except Exception as e:
+            print(f"Warning: MarketRepository init failed: {e}")
+            self.repo = None
         self.loader = DataLoader(settings.DATA_CACHE_DIR)
 
     def get_overview(self, symbol: str, date: str) -> MarketOverview:
         # 1. Try DB
-        existing = self.repo.find_by_date(symbol, date)
-        
+        existing = None
+        if self.repo:
+            try:
+                existing = self.repo.find_by_date(symbol, date)
+            except Exception as e:
+                print(f"Warning: DB fetch failed for {symbol}: {e}")
+
         # Check Freshness
         force_refresh = False
         if existing:
             if needs_refresh(existing.created_at):
-                # Only force refresh if the requested date is TODAY
-                # If requesting past date, existing is fine (unless we want to correct history?)
-                # Usually we only update 'today' intraday.
                 if date == datetime.now().strftime("%Y-%m-%d"):
                     force_refresh = True
                     print(f"Refreshing stale data for {symbol} (Last update: {existing.created_at})")
@@ -55,7 +61,6 @@ class MarketService:
             return existing
 
         # 2. Compute
-        # If force_refresh, bypass cache in loader
         use_cache = not force_refresh
         
         # Load data up to date
@@ -85,34 +90,49 @@ class MarketService:
             regime=regime_label,
             price=current_price,
             volatility=volatility,
-            forecast_short={}, # Placeholder for now
+            forecast_short={}, 
             forecast_medium={},
             forecast_long={}
         )
         
-        # 3. Save (Upsert handled by repo/logic or we need delete/create?)
-        # Repo 'create' inserts new doc. If unique index exists, it fails.
-        # We should use 'update' or delete old one.
-        # Let's check repo implementation. It uses insert_one.
-        # We need an upsert or update method in repo.
-        # For now, let's delete existing if force_refresh.
+        # 3. Save
+        if self.repo:
+            try:
+                if existing and force_refresh:
+                    self.repo.delete({"_id": existing.id})
+                return self.repo.create(overview)
+            except Exception as e:
+                print(f"Warning: DB save failed for {symbol}: {e}")
+                return overview
         
-        if existing and force_refresh:
-            self.repo.delete({"_id": existing.id})
-            
-        return self.repo.create(overview)
+        return overview
 
     def get_available_dates(self) -> Dict[str, List[str]]:
-        dates = self.repo.get_available_dates()
+        dates = []
+        if self.repo:
+            try:
+                dates = self.repo.get_available_dates()
+            except Exception as e:
+                print(f"Warning: DB get_available_dates failed: {e}")
+        
+        if not dates:
+            dates = [datetime.now().strftime("%Y-%m-%d")]
+            
         return {
             "allowed_dates": dates,
-            "disabled_dates": [] # Frontend logic can handle future dates
+            "disabled_dates": [] 
         }
 
 class SimulationService:
     def __init__(self):
-        self.repo = SimulationRepository()
-        self.market_repo = MarketRepository()
+        try:
+            self.repo = SimulationRepository()
+            self.market_repo = MarketRepository()
+        except Exception as e:
+            print(f"Warning: SimulationRepository init failed: {e}")
+            self.repo = None
+            self.market_repo = None
+            
         self.loader = DataLoader(settings.DATA_CACHE_DIR)
         self.simulator = None
 
@@ -123,32 +143,31 @@ class SimulationService:
         return self.simulator
 
     def run_simulation(self, symbol: str, date: str, horizons: List[int] = [10, 30, 100, 365, 547, 730]) -> Dict[str, Any]:
-        # Check freshness for simulation too?
-        # If market data updated, simulation might be stale.
-        # We can check if any run exists for this date.
-        
-        # Logic: Check one run (e.g. horizon 10)
-        # If it exists and is stale -> delete ALL runs for this symbol/date and re-run.
-        
-        check_run = self.repo.find_run(symbol, date, horizons[0])
+        check_run = None
+        if self.repo:
+            try:
+                check_run = self.repo.find_run(symbol, date, horizons[0])
+            except Exception as e:
+                print(f"Warning: DB find_run failed: {e}")
+
         force_refresh = False
-        
         if check_run:
             if needs_refresh(check_run.created_at):
                 if date == datetime.now().strftime("%Y-%m-%d"):
                     force_refresh = True
                     print(f"Refreshing stale simulation for {symbol}")
         
-        if force_refresh:
-            # Delete all runs for this symbol/date to ensure consistency
-            self.repo.delete_many({"symbol": symbol, "date": date})
-            # Also force data reload
-            self.loader.get_data(symbol, use_cache=False)
+        if force_refresh and self.repo:
+            try:
+                self.repo.delete_many({"symbol": symbol, "date": date})
+                self.loader.get_data(symbol, use_cache=False)
+            except Exception as e:
+                print(f"Warning: DB delete failed: {e}")
 
         runs = []
         
         # Load data once
-        df = self.loader.get_data(symbol) # Cache might be refreshed above
+        df = self.loader.get_data(symbol)
         df = df[df.index <= date]
         returns = df['Close'].pct_change().dropna()
         current_price = float(df['Close'].iloc[-1])
@@ -163,13 +182,18 @@ class SimulationService:
         params = self._get_simulator().fit_regime_params(returns, regimes)
 
         for h in horizons:
-            # 2. Check DB (unless forced refresh which deleted them)
-            existing = self.repo.find_run(symbol, date, h)
+            existing = None
+            if self.repo and not force_refresh:
+                try:
+                    existing = self.repo.find_run(symbol, date, h)
+                except:
+                    pass
+            
             if existing:
                 runs.append(existing)
                 continue
 
-            # 3. Compute
+            # Compute
             sim_res = self._get_simulator().simulate_paths(
                 start_price=current_price,
                 start_regime=current_regime,
@@ -185,7 +209,7 @@ class SimulationService:
                 symbol=symbol,
                 date=date,
                 horizon=h,
-                ml_forecast=0.0, # Placeholder
+                ml_forecast=0.0, 
                 p10=q['p10'],
                 p50=q['p50'],
                 p90=q['p90'],
@@ -193,8 +217,15 @@ class SimulationService:
                 model_snapshot={"regime_id": current_regime}
             )
             
-            saved_run = self.repo.create(run)
-            runs.append(saved_run)
+            if self.repo:
+                try:
+                    saved_run = self.repo.create(run)
+                    runs.append(saved_run)
+                except Exception as e:
+                    print(f"Warning: DB save run failed: {e}")
+                    runs.append(run)
+            else:
+                runs.append(run)
 
         return {
             "symbol": symbol,
