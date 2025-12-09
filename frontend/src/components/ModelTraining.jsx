@@ -17,6 +17,8 @@ const ModelTraining = () => {
         try {
             const res = await axios.get(`${API_URL}/indices`);
             setIndices(res.data.indices);
+            // Default Select All
+            setSelectedIndices(res.data.indices.map(i => i.symbol));
         } catch (err) {
             console.error("Failed to fetch indices", err);
         }
@@ -104,7 +106,8 @@ const ModelTraining = () => {
                                             color: selectedIndices.includes(idx.symbol) ? '#000' : '#fff',
                                             borderRadius: '4px',
                                             cursor: 'pointer',
-                                            fontWeight: selectedIndices.includes(idx.symbol) ? 'bold' : 'normal'
+                                            fontWeight: selectedIndices.includes(idx.symbol) ? 'bold' : 'normal',
+                                            border: selectedIndices.includes(idx.symbol) ? '1px solid #00d4ff' : '1px solid #444'
                                         }}>
                                         {idx.name} ({idx.symbol})
                                     </div>
@@ -122,7 +125,7 @@ const ModelTraining = () => {
                             fontSize: '1rem',
                             fontWeight: 'bold'
                         }}>
-                            {loading ? 'Training Models...' : 'Start Training Sequence'}
+                            {loading ? 'Training Models...' : 'Train Model'}
                         </button>
                     </form>
                 </div>

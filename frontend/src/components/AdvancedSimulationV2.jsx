@@ -4,9 +4,9 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import API_URL from '../config';
 
 const AdvancedSimulationV2 = () => {
-    const [symbol, setSymbol] = useState('AAPL');
-    const [conservative, setConservative] = useState(false);
-    const [engine, setEngine] = useState('legacy');
+    const [symbol, setSymbol] = useState('SPY'); // Default to Market (SPY)
+    const [conservative, setConservative] = useState(true); // Default to Conservative (Thinner tails)
+    const [engine, setEngine] = useState('ensemble'); // Default to Ensemble Professional
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -66,14 +66,14 @@ const AdvancedSimulationV2 = () => {
             <div className="content">
                 {/* Controls */}
                 <div className="controls-card" style={{ background: '#1e1e1e', padding: '1.5rem', borderRadius: '12px', marginBottom: '2rem' }}>
-                    <form onSubmit={runSimulation} style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'end' }}>
+                    <form onSubmit={runSimulation} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', alignItems: 'end' }}>
                         <div>
                             <label style={{ display: 'block', marginBottom: '0.5rem', color: '#aaa' }}>Symbol</label>
                             <input
                                 type="text"
                                 value={symbol}
                                 onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-                                style={{ padding: '0.6rem 1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #444', background: '#2a2a2a', color: 'white' }}
+                                style={{ padding: '0.6rem 1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #444', background: '#2a2a2a', color: 'white', width: '100%', boxSizing: 'border-box' }}
                             />
                         </div>
                         <div>
@@ -81,25 +81,25 @@ const AdvancedSimulationV2 = () => {
                             <select
                                 value={engine}
                                 onChange={(e) => setEngine(e.target.value)}
-                                style={{ padding: '0.6rem 1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #444', background: '#2a2a2a', color: 'white' }}
+                                style={{ padding: '0.6rem 1rem', fontSize: '1rem', borderRadius: '6px', border: '1px solid #444', background: '#2a2a2a', color: 'white', width: '100%', boxSizing: 'border-box' }}
                             >
+                                <option value="ensemble">Ensemble (Professional)</option>
                                 <option value="legacy">Standard (Slow)</option>
                                 <option value="numpy">Vectorized (Fast)</option>
                                 <option value="numba">Numba (JIT)</option>
                                 <option value="torch">Torch (GPU)</option>
-                                <option value="ensemble">Ensemble (Professional)</option>
                             </select>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', height: '100%', paddingBottom: '0.6rem' }}>
                             <input
                                 type="checkbox"
                                 checked={conservative}
                                 onChange={(e) => setConservative(e.target.checked)}
                                 id="conservative-check-v2"
-                                style={{ width: 'auto' }}
+                                style={{ width: '1.2rem', height: '1.2rem' }}
                             />
-                            <label htmlFor="conservative-check-v2" style={{ cursor: 'pointer', color: '#aaa' }}>
-                                Conservative Tails (less extreme)
+                            <label htmlFor="conservative-check-v2" style={{ cursor: 'pointer', color: '#ddd' }}>
+                                Conservative Tails
                             </label>
                         </div>
                         <button
@@ -113,10 +113,11 @@ const AdvancedSimulationV2 = () => {
                                 cursor: loading ? 'not-allowed' : 'pointer',
                                 fontWeight: 'bold',
                                 color: 'white',
-                                fontSize: '1rem'
+                                fontSize: '1rem',
+                                width: '100%'
                             }}
                         >
-                            {loading ? 'Simulating (2000 paths)...' : 'Run V2 Simulation'}
+                            {loading ? 'Simulating...' : 'Run V2 Simulation'}
                         </button>
                         {data && (
                             <button

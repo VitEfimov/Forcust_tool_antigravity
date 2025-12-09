@@ -332,7 +332,7 @@ const WalkForward = () => {
                         <div className="flex h-full items-center justify-center bg-gray-800/50 rounded-xl border border-gray-700 border-dashed h-96">
                             <div className="text-center">
                                 <p className="text-gray-500 mb-2">Configure parameters and run simulation to see results.</p>
-                                <p className="text-gray-600 text-sm">Try starting with SPY, 10d Horizon, 730d Train Window.</p>
+                                <p className="text-green-400 text-sm font-bold">Defaults applied automatically.</p>
                             </div>
                         </div>
                     )}
