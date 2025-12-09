@@ -13,7 +13,7 @@ class Settings:
     # Business cycle: 10 years * 252 days = 2520 days
     BUSINESS_CYCLE_DAYS: int = 2520
     
-    # Database
+    # Database check
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///data/forecasts.db")
     STORAGE_TYPE: str = os.getenv("STORAGE_TYPE", "sqlite") # sqlite, mongo, excel
     LOCAL_DATA_DIR: str = os.getenv("LOCAL_DATA_DIR", "data/local")
