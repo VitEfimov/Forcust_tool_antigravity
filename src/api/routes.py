@@ -463,7 +463,20 @@ def _compute_advanced_simulation(symbol: str, conservative: bool, engine: str = 
         # 2. Get ML Forecasts (if available)
         ml_forecasts = {}
         try:
-            X_inf = pipeline.get_inference_data(df)
+            # FETCH EXTERNAL DATA TO MATCH TRAINING SHAPE
+            external_data = {}
+            # Use same list as weekly_train
+            indices = settings.TIER_1_INDICES + settings.TIER_2_INDICES + ['^MEGACAP']
+            for idx in indices:
+                try:
+                    d = loader.get_data(idx)
+                    if not d.empty:
+                        external_data[idx] = d
+                except: pass
+            
+            # Pass external_data to pipeline
+            X_inf = pipeline.get_inference_data(df, external_data=external_data)
+            
             # Check all horizons
             for h in [10, 30, 100, 365, 547, 730]:
                 model = registry.load_forecast_model(symbol, h)
@@ -471,12 +484,14 @@ def _compute_advanced_simulation(symbol: str, conservative: bool, engine: str = 
                     try:
                         pred_log_ret = model.predict(X_inf)[0]
                         ml_forecasts[h] = (np.exp(pred_log_ret) - 1)
-                    except:
+                    except Exception as e:
+                        # If shapes still mismatch (e.g. old model file), catch safely
+                        print(f"[Ensemble] Model predict failed for {h}d: {e}")
                         ml_forecasts[h] = None 
                 else:
                     ml_forecasts[h] = None
         except Exception as e:
-            print(f"[Ensemble] ML Fetch Failed: {e}")
+            print(f"[Ensemble] ML Pipeline Failed: {e}")
             
         # 3. Calculate Regime Analytical Projection (Geometric Brownian Motion)
         # Uses parameters from the fitted regime-switching model (sim.params)

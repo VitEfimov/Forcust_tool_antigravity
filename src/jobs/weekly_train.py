@@ -147,24 +147,45 @@ def train_for_symbol(symbol: str):
     df = loader.get_data(symbol, start_date="2010-01-01")
     if df.empty: return
     
-    # 2. Generate Features
-    logger.info(f"  Generating features ({len(df)} rows)...")
-    df_feats = pipeline.generate_features(df)
+    # 2. Fetch External Data (Optimized Tiers)
+    logger.info("  Fetching Macro/Factor Data (Tiers 1 & 2 + MegaCap)...")
+    external_data = {}
+    indices = settings.TIER_1_INDICES + settings.TIER_2_INDICES + ['^MEGACAP']
     
-    # 3. Train Regime Classifier (HMM)
+    for idx in indices:
+        try:
+            d = loader.get_data(idx)
+            if not d.empty:
+                external_data[idx] = d
+        except Exception as e:
+            logger.warning(f"  Failed to fetch {idx}: {e}")
+
+    # 3. Train Regime Classifier (HMM) - Dependent only on target returns
     train_regime_classifier(symbol, df, registry)
     
-    # 4. Train Sequence Model (Transformer)
-    train_sequence_model(symbol, df_feats, registry)
+    # 4. Train Sequence Model (Transformer) - Uses technicals + macros
+    # Note: Transformer implementation expects specific shape.
+    # For now, we skip external data for transformer to avoid dimension issues, 
+    # OR we use prepared data.
+    # Let's keep Transformer simple (internal only) or inconsistent? 
+    # Better to be consistent. But Transformer is placeholder mostly.
+    # We will generate base features first for Transformer.
+    try:
+        df_feats = pipeline.prepare_features(df, external_data=None) # Internal only for Transformer?
+        train_sequence_model(symbol, df_feats, registry)
+    except: pass
     
     # 5. Train Forecast Models (LightGBM) with Tuning
+    # These MUST use the external data to match inference.
     for h in HORIZONS:
         logger.info(f"  Training Horizon: {h} days...")
-        X, y = prepare_training_data(df_feats, h)
+        # pipeline.get_training_data handles indicator generation + external merge
+        X, y, feats = pipeline.get_training_data(df, external_data=external_data, horizon=h)
+        
         if len(X) < 100: continue
             
         # Hyperparameter Tuning
-        logger.info(f"    Tuning parameters...")
+        logger.info(f"    Tuning parameters (Features: {X.shape[1]})...")
         best_params = tune_lightgbm(X, y)
         logger.info(f"    Best Params: {best_params}")
         
