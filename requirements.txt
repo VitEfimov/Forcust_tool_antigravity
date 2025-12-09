@@ -21,3 +21,4 @@ filterpy
 copulas
 python-dotenv
 pytest-playwright
+openpyxl

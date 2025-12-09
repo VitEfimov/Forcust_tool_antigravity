@@ -1,75 +1,59 @@
-# Antigravity
+# Antigravity: Advanced Market Forecasting System
 
-Antigravity is a daily stock-forecasting service that combines Markov/HMM regime modeling with supervised machine learning (LightGBM).
+Antigravity is a professional-grade stock forecasting, simulation, and analysis platform. It combines **statistical mechanics** (Regime-Switching GARCH) with **supervised machine learning** (LightGBM) to provide a multi-layered view of future market behavior.
 
-## Features
-- **Data Ingestion**: Fetches daily OHLCV data from yfinance (cached locally).
-- **Regime Detection**: Uses Gaussian HMM to detect market regimes (e.g., Low Volatility vs High Volatility).
-- **Forecasting**: Predicts next-day returns using LightGBM with technical indicators.
-- **Simulation**: Monte-Carlo simulation for probabilistic price paths.
-- **Dashboard**: React-based UI to visualize forecasts and regime probabilities.
-- **Automation**: Daily background scheduler for model updates.
+## Core Capabilities
 
-## Setup
+### 1. Market Overview (Macro View)
+- **High-Speed Analysis**: Instantly scan the Top 50 S&P 500 stocks.
+- **Smart Forecasts**: Uses a **Capped Analytical Drift** model to project 10d to 2-year returns without "infinite growth" errors.
+- **Regime Detection**: Real-time classification of simulated volatility states (Low/High Volatility, Trending/Mean-Reverting).
 
-### Prerequisites
-- Python 3.9+
-- Node.js 18+
-- Docker (optional)
+### 2. Advanced Simulation (Deep Dive)
+- **Engine**: "V2" Regime-Switching GARCH + Student-t Innovations + Jump Diffusion.
+- **Precision**: Runs 2,000+ Monte Carlo paths per request to map out the full probability distribution (P10 Bear, P50 Base, P90 Bull).
+- **Use Case**: Stress-testing specific stocks (e.g., "What is the 90th percentile outcome for high-beta stocks in a crash regime?").
 
-### Backend Setup
+### 3. ML Training Lab (Custom Alpha)
+- **Exogenous Variables**: Train custom models that learn from broad market drivers (S&P 500, VIX, 10Y Yield, Oil, Gold).
+- **On-the-Fly Learning**: Select your target stock and feature set, and the system dynamically fetches, aligns, and trains a **LightGBM** regressor.
+- **Multi-Horizon**: Automatically generates forecasts for 10d, 30d, 100d, and 365d horizons.
 
-**Option 1: Using pip (if poetry is not installed)**
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-2. Run the API:
-   ```bash
-   python -m uvicorn src.api.main:app --reload
-   ```
+### 4. Custom Watchlist
+- **Personalized Tracking**: Add/remove specific tickers.
+- **Full Power**: Unlike the standard overview, your watchlist runs the **Full V2 Simulation** in parallel for every item, giving maximum fidelity for your portfolio.
 
-**Option 2: Using poetry**
-1. Install dependencies:
-   ```bash
-   pip install poetry
-   poetry install
-   ```
-2. Run the API:
-   ```bash
-   poetry run uvicorn src.api.main:app --reload
-   ```
+## Tech Stack
+- **Backend**: Python (FastAPI), ThreadPoolExecutor (Parallelism), NumPy/Pandas (Vectorized Math), Arch/LightGBM (Modeling).
+- **Frontend**: React (Vite), Recharts (Visualization), Concurrent Mode.
+- **Data**: yfinance (Live), persistent local caching for speed.
 
-The API will be available at `http://localhost:8000`.
+## Quick Start
 
-### Frontend Setup
-1. Navigate to frontend:
-   ```bash
-   cd frontend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Run the development server:
-   ```bash
-   npm run dev
-   ```
-   The dashboard will be available at `http://localhost:5173`.
-
-### Docker Setup
-Run the entire stack with Docker Compose:
+### 1. Backend
+Run from the project root (`Forcust_tool_antigravity`):
 ```bash
-docker-compose up --build
+# Install dependencies
+pip install -r requirements.txt
+
+# Start API (Hot Reload)
+python -m uvicorn src.api.main:app --reload
 ```
+*API: http://localhost:8000*
 
-## Usage
-1. Open the dashboard.
-2. Enter a stock symbol (e.g., "SPY").
-3. View the current price, detected regime, forecasted return, and simulation scenarios.
-
-## Testing
-Run backend tests:
+### 2. Frontend
+Open a new terminal:
 ```bash
-poetry run pytest
+cd frontend
+npm install
+npm run dev
 ```
+*Dashboard: http://localhost:5173*
+
+## Usage Guide
+
+1.  **Dashboard**: Quick check of your primary assets.
+2.  **Market Overview**: Scan for opportunities (sort by "2Y Forecast" to find growth candidates).
+3.  **Advanced Simulation**: Dive deep into a specific ticker. Check "Conservative Mode" to stress-test against fat tails.
+4.  **ML Training**: Go to the "ML Training" tab. Select `^VIX` and `^TNX` (Treasury Yield) to train a model that understands fear and interest rates.
+
