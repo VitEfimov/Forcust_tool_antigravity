@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 import pandas as pd
 import numpy as np
-from src.core.repository import MarketRepository, SimulationRepository, WishlistRepository
+# from src.core.repository import MarketRepository, SimulationRepository, WishlistRepository
 from src.core.models import MarketOverview, SimulationRun, WishlistItem
 from src.data.loader import DataLoader
 from src.core.config import settings
@@ -33,38 +33,17 @@ def needs_refresh(last_update: datetime) -> bool:
 
 class MarketService:
     def __init__(self):
-        try:
-            self.repo = MarketRepository()
-        except Exception as e:
-            print(f"Warning: MarketRepository init failed: {e}")
-            self.repo = None
+        # self.repo = MarketRepository() # Removed for localruns
         self.loader = DataLoader(settings.DATA_CACHE_DIR)
 
     def get_overview(self, symbol: str, date: str) -> MarketOverview:
-        # 1. Try DB
-        existing = None
-        if self.repo:
-            try:
-                existing = self.repo.find_by_date(symbol, date)
-            except Exception as e:
-                print(f"Warning: DB fetch failed for {symbol}: {e}")
-
-        # Check Freshness
-        force_refresh = False
-        if existing:
-            if needs_refresh(existing.created_at):
-                if date == datetime.now().strftime("%Y-%m-%d"):
-                    force_refresh = True
-                    print(f"Refreshing stale data for {symbol} (Last update: {existing.created_at})")
+        # 1. Try DB -> SKIPPED
+        # existing = self.repo.find_by_date(symbol, date)
         
-        if existing and not force_refresh:
-            return existing
-
-        # 2. Compute
-        use_cache = not force_refresh
+        # Always Compute
         
         # Load data up to date
-        df = self.loader.get_data(symbol, use_cache=use_cache)
+        df = self.loader.get_data(symbol, use_cache=True)
         if df.empty:
             raise ValueError(f"No data for {symbol}")
         
@@ -95,29 +74,13 @@ class MarketService:
             forecast_long={}
         )
         
-        # 3. Save
-        if self.repo:
-            try:
-                if existing and force_refresh:
-                    self.repo.delete({"_id": existing.id})
-                return self.repo.create(overview)
-            except Exception as e:
-                print(f"Warning: DB save failed for {symbol}: {e}")
-                return overview
-        
+        # 3. Save -> SKIPPED
+        # return self.repo.create(overview)
         return overview
 
     def get_available_dates(self) -> Dict[str, List[str]]:
-        dates = []
-        if self.repo:
-            try:
-                dates = self.repo.get_available_dates()
-            except Exception as e:
-                print(f"Warning: DB get_available_dates failed: {e}")
-        
-        if not dates:
-            dates = [datetime.now().strftime("%Y-%m-%d")]
-            
+        # dates = self.repo.get_available_dates() # Removed
+        dates = [datetime.now().strftime("%Y-%m-%d")]
         return {
             "allowed_dates": dates,
             "disabled_dates": [] 
@@ -125,14 +88,8 @@ class MarketService:
 
 class SimulationService:
     def __init__(self):
-        try:
-            self.repo = SimulationRepository()
-            self.market_repo = MarketRepository()
-        except Exception as e:
-            print(f"Warning: SimulationRepository init failed: {e}")
-            self.repo = None
-            self.market_repo = None
-            
+        # self.repo = SimulationRepository() # Removed
+        # self.market_repo = MarketRepository() # Removed
         self.loader = DataLoader(settings.DATA_CACHE_DIR)
         self.simulator = None
 
@@ -143,27 +100,8 @@ class SimulationService:
         return self.simulator
 
     def run_simulation(self, symbol: str, date: str, horizons: List[int] = [10, 30, 100, 365, 547, 730]) -> Dict[str, Any]:
-        check_run = None
-        if self.repo:
-            try:
-                check_run = self.repo.find_run(symbol, date, horizons[0])
-            except Exception as e:
-                print(f"Warning: DB find_run failed: {e}")
-
-        force_refresh = False
-        if check_run:
-            if needs_refresh(check_run.created_at):
-                if date == datetime.now().strftime("%Y-%m-%d"):
-                    force_refresh = True
-                    print(f"Refreshing stale simulation for {symbol}")
+        # 1. Check DB -> SKIPPED
         
-        if force_refresh and self.repo:
-            try:
-                self.repo.delete_many({"symbol": symbol, "date": date})
-                self.loader.get_data(symbol, use_cache=False)
-            except Exception as e:
-                print(f"Warning: DB delete failed: {e}")
-
         runs = []
         
         # Load data once
@@ -182,16 +120,7 @@ class SimulationService:
         params = self._get_simulator().fit_regime_params(returns, regimes)
 
         for h in horizons:
-            existing = None
-            if self.repo and not force_refresh:
-                try:
-                    existing = self.repo.find_run(symbol, date, h)
-                except:
-                    pass
-            
-            if existing:
-                runs.append(existing)
-                continue
+            # 2. Check DB -> SKIPPED
 
             # Compute
             sim_res = self._get_simulator().simulate_paths(
@@ -217,15 +146,8 @@ class SimulationService:
                 model_snapshot={"regime_id": current_regime}
             )
             
-            if self.repo:
-                try:
-                    saved_run = self.repo.create(run)
-                    runs.append(saved_run)
-                except Exception as e:
-                    print(f"Warning: DB save run failed: {e}")
-                    runs.append(run)
-            else:
-                runs.append(run)
+            # saved_run = self.repo.create(run) # SKIPPED
+            runs.append(run)
 
         return {
             "symbol": symbol,

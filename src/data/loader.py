@@ -24,7 +24,7 @@ class DataLoader:
         clean_symbol = symbol.upper().strip()
         return self.symbol_map.get(clean_symbol, clean_symbol)
 
-    def get_data(self, symbol: str, start_date: str = "2000-01-01", end_date: Optional[str] = None, use_cache: bool = True) -> pd.DataFrame:
+    def get_data(self, symbol: str, start_date: str = "2000-01-01", end_date: Optional[str] = None, use_cache: bool = False) -> pd.DataFrame:
         """
         Fetch OHLCV data for a symbol.
         Tries cache first, then falls back to yfinance.

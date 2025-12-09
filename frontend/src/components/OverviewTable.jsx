@@ -7,55 +7,74 @@ const OverviewTable = ({ data }) => {
 
     return (
         <div className="table-container" style={{ overflowX: 'auto' }}>
-            <table className="overview-table">
+            <table className="overview-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
-                    <tr>
-                        <th style={{ position: 'sticky', left: 0, zIndex: 1, backgroundColor: '#333' }}>Symbol</th>
-                        <th>Date</th>
-                        <th>Close</th>
-                        <th>10d %</th>
-                        <th>10d Price</th>
-                        <th>100d %</th>
-                        <th>100d Price</th>
-                        <th>1yr %</th>
-                        <th>1yr Price</th>
-                        <th>1.5yr %</th>
-                        <th>1.5yr Price</th>
-                        <th>2yr %</th>
-                        <th>2yr Price</th>
+                    <tr style={{ borderBottom: '2px solid #444' }}>
+                        <th style={{ padding: '0.8rem', textAlign: 'left' }}>Symbol</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>Price</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>Change</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>Change %</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'center' }}>Signal</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>10d</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>30d</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>100d</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>365d</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>547d</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>730d</th>
                     </tr>
                 </thead>
                 <tbody>
                     {data.map((item) => (
-                        <tr key={item.symbol}>
-                            <td className="symbol-cell" style={{ position: 'sticky', left: 0, zIndex: 1, backgroundColor: '#2a2a2a' }}>{item.symbol}</td>
-                            <td>{item.date}</td>
-                            <td>${item.today_close.toFixed(2)}</td>
-
-                            <td className={item.forecast_10d_pct > 0 ? 'bullish-text' : 'bearish-text'}>
-                                {item.forecast_10d_pct ? `${item.forecast_10d_pct > 0 ? '+' : ''}${item.forecast_10d_pct.toFixed(2)}%` : 'N/A'}
+                        <tr key={item.symbol} style={{ borderBottom: '1px solid #2a2a2a' }}>
+                            <td style={{ padding: '0.8rem', fontWeight: 'bold' }}>{item.symbol}</td>
+                            <td style={{ padding: '0.8rem', textAlign: 'right' }}>
+                                ${item.price?.toFixed(2)}
                             </td>
-                            <td>${item.forecast_10d_price ? item.forecast_10d_price.toFixed(2) : 'N/A'}</td>
-
-                            <td className={item.forecast_100d_pct > 0 ? 'bullish-text' : 'bearish-text'}>
-                                {item.forecast_100d_pct ? `${item.forecast_100d_pct > 0 ? '+' : ''}${item.forecast_100d_pct.toFixed(2)}%` : 'N/A'}
+                            <td style={{
+                                padding: '0.8rem',
+                                textAlign: 'right',
+                                color: item.change > 0 ? '#66ff66' : item.change < 0 ? '#ff6666' : '#888'
+                            }}>
+                                {item.change > 0 ? '+' : ''}{item.change?.toFixed(2)}
                             </td>
-                            <td>${item.forecast_100d_price ? item.forecast_100d_price.toFixed(2) : 'N/A'}</td>
-
-                            <td className={item.forecast_365d_pct > 0 ? 'bullish-text' : 'bearish-text'}>
-                                {item.forecast_365d_pct ? `${item.forecast_365d_pct > 0 ? '+' : ''}${item.forecast_365d_pct.toFixed(2)}%` : 'N/A'}
+                            <td style={{
+                                padding: '0.8rem',
+                                textAlign: 'right',
+                                color: item.change_pct > 0 ? '#66ff66' : item.change_pct < 0 ? '#ff6666' : '#888'
+                            }}>
+                                {item.change_pct > 0 ? '+' : ''}{item.change_pct?.toFixed(2)}%
                             </td>
-                            <td>${item.forecast_365d_price ? item.forecast_365d_price.toFixed(2) : 'N/A'}</td>
-
-                            <td className={item.forecast_547d_pct > 0 ? 'bullish-text' : 'bearish-text'}>
-                                {item.forecast_547d_pct ? `${item.forecast_547d_pct > 0 ? '+' : ''}${item.forecast_547d_pct.toFixed(2)}%` : 'N/A'}
+                            <td style={{ padding: '0.8rem', textAlign: 'center' }}>
+                                <span style={{
+                                    padding: '0.3rem 0.6rem',
+                                    borderRadius: '12px',
+                                    fontSize: '0.8rem',
+                                    background: item.signal === 'bullish' ? '#1a4d1a' :
+                                        item.signal === 'bearish' ? '#4d1a1a' : '#333',
+                                    color: item.signal === 'bullish' ? '#66ff66' :
+                                        item.signal === 'bearish' ? '#ff6666' : '#888'
+                                }}>
+                                    {item.signal || 'neutral'}
+                                </span>
                             </td>
-                            <td>${item.forecast_547d_price ? item.forecast_547d_price.toFixed(2) : 'N/A'}</td>
-
-                            <td className={item.forecast_730d_pct > 0 ? 'bullish-text' : 'bearish-text'}>
-                                {item.forecast_730d_pct ? `${item.forecast_730d_pct > 0 ? '+' : ''}${item.forecast_730d_pct.toFixed(2)}%` : 'N/A'}
+                            <td style={{ padding: '0.8rem', textAlign: 'right' }}>
+                                {item.forecast_10d_pct != null ? `${item.forecast_10d_pct > 0 ? '+' : ''}${item.forecast_10d_pct.toFixed(2)}%` : '-'}
                             </td>
-                            <td>${item.forecast_730d_price ? item.forecast_730d_price.toFixed(2) : 'N/A'}</td>
+                            <td style={{ padding: '0.8rem', textAlign: 'right' }}>
+                                {item.forecast_30d_pct != null ? `${item.forecast_30d_pct > 0 ? '+' : ''}${item.forecast_30d_pct.toFixed(2)}%` : '-'}
+                            </td>
+                            <td style={{ padding: '0.8rem', textAlign: 'right' }}>
+                                {item.forecast_100d_pct != null ? `${item.forecast_100d_pct > 0 ? '+' : ''}${item.forecast_100d_pct.toFixed(2)}%` : '-'}
+                            </td>
+                            <td style={{ padding: '0.8rem', textAlign: 'right' }}>
+                                {item.forecast_365d_pct != null ? `${item.forecast_365d_pct > 0 ? '+' : ''}${item.forecast_365d_pct.toFixed(2)}%` : '-'}
+                            </td>
+                            <td style={{ padding: '0.8rem', textAlign: 'right' }}>
+                                {item.forecast_547d_pct != null ? `${item.forecast_547d_pct > 0 ? '+' : ''}${item.forecast_547d_pct.toFixed(2)}%` : '-'}
+                            </td>
+                            <td style={{ padding: '0.8rem', textAlign: 'right' }}>
+                                {item.forecast_730d_pct != null ? `${item.forecast_730d_pct > 0 ? '+' : ''}${item.forecast_730d_pct.toFixed(2)}%` : '-'}
+                            </td>
                         </tr>
                     ))}
                 </tbody>

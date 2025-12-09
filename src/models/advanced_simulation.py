@@ -1,8 +1,25 @@
 import numpy as np
 import pandas as pd
-
+from arch import arch_model
+from scipy.stats import t, norm
 import joblib
 import os
+
+# New Version 3 Simulation Engines
+try:
+    from src.sim.vectorized_sim import vectorized_simulate
+except ImportError:
+    vectorized_simulate = None
+
+try:
+    from src.sim.numba_sim import numba_simulate_wrapper
+except ImportError:
+    numba_simulate_wrapper = None
+    
+try:
+    from src.sim.torch_sim import torch_simulate
+except ImportError:
+    torch_simulate = None
 
 class AdvancedSimulator:
     def __init__(self, use_cache=True, cache_dir="data/cache/models"):
@@ -10,40 +27,93 @@ class AdvancedSimulator:
         self.cache_dir = cache_dir
         os.makedirs(cache_dir, exist_ok=True)
 
-    def fit_regime_params(self, returns: pd.Series, regimes: np.ndarray):
+    def fit_regime_params(self, returns: pd.Series, regimes: np.ndarray, n_regimes: int = None):
         """
         Fit GARCH parameters for each regime.
         returns: pd.Series of daily returns (e.g. 0.01 for 1%)
         regimes: np.ndarray of regime labels (ints)
+        n_regimes: Optional total number of regimes to ensure params for all states.
         """
         # Scale returns to percentage for numerical stability in GARCH
         scaled_returns = returns * 100.0
         params = {}
         unique_regimes = np.unique(regimes)
         
-        for r in unique_regimes:
+        # If n_regimes is provided, ensure we cover all 0..n-1
+        regome_iter = range(n_regimes) if n_regimes is not None else unique_regimes
+        
+        # Calculate global stats for fallback
+        global_std = scaled_returns.std() / 100.0
+        global_mean = scaled_returns.mean() / 100.0
+        
+        # Bug 12: Fit Global GARCH for fallback
+        global_params = None
+        try:
+            gam = arch_model(scaled_returns, vol='Garch', p=1, o=0, q=1, dist='t')
+            gres = gam.fit(disp='off')
+            if gres.convergence_flag == 0 and not np.isnan(gres.params.values).any():
+                global_params = {
+                    'method': 'garch',
+                    'garch_res': gres,
+                    'omega': gres.params['omega'],
+                    'alpha': gres.params['alpha[1]'],
+                    'beta': gres.params['beta[1]'],
+                    't_df': gres.params.get('nu', 6),
+                    'jump_lambda': 0.015, # Average
+                    'last_resid': gres.resid.iloc[-1],
+                    'long_term_vol': np.sqrt(gres.params['omega'] / (1.0 - gres.params['alpha[1]'] - gres.params['beta[1]'])) / 100.0,
+                    'regime_type': 'Global'
+                }
+        except:
+            pass
+
+        for r in regome_iter:
             # Filter returns for this regime
-            # We need to align indices. Assuming regimes is same length/index as returns.
-            # If regimes is array, we use boolean indexing.
             rrets = scaled_returns[regimes == r]
             rrets = rrets.dropna()
             
+            if len(rrets) > 0:
+                pass
+            
             if len(rrets) < 50:
+                # Bug 12 Fix: Use Global GARCH fallback if available
+                if global_params:
+                    params[r] = global_params.copy()
+                    # Keep regime-specific 'regime_type' logic later? 
+                    # We will re-label later, so just mark it.
+                    params[r]['note'] = 'global_fallback'
+                    continue
+                
                 # Fallback for insufficient data: use simple stats
+                # Fallback for insufficient data: use simple stats
+                # If r is not in unique_regimes (e.g. unseen state), use global stats
+                if len(rrets) == 0:
+                    curr_std = global_std
+                    curr_mean = global_mean
+                else:
+                    curr_std = rrets.std() / 100.0
+                    curr_mean = rrets.mean() / 100.0
+                    
                 params[r] = {
                     'method': 'simple',
-                    'std': rrets.std() / 100.0, # back to decimal
-                    'mean': rrets.mean() / 100.0,
+                    'std': curr_std,
+                    'mean': curr_mean,
+                    'long_term_vol': curr_std, # Simple regime long run vol is std
                     'jump_lambda': 0.01
                 }
                 continue
 
             try:
                 # Fit GARCH(1,1) with Student-t errors
-                from arch import arch_model
                 am = arch_model(rrets, vol='Garch', p=1, o=0, q=1, dist='t')
                 res = am.fit(disp='off')
                 
+                # Check for convergence or NaN values
+                # convergence_flag: 0 means converged
+                if res.convergence_flag != 0 or np.isnan(res.params.values).any():
+                    print(f"GARCH non-convergence for regime {r} (flag={res.convergence_flag}). Using fallback.")
+                    raise ValueError("GARCH convergence failed")
+
                 params[r] = {
                     'method': 'garch',
                     'garch_res': res,
@@ -52,70 +122,136 @@ class AdvancedSimulator:
                     'beta': res.params['beta[1]'],
                     't_df': res.params.get('nu', 6),
                     # Higher jump probability in high vol regimes (usually regime 1 or 2)
-                    'jump_lambda': max(0.01, 0.05 if r > 0 else 0.005) 
+                    'jump_lambda': max(0.01, 0.05 if r > 0 else 0.005),
+                    # Store last residual for simulation continuity
+                    'last_resid': res.resid.iloc[-1],
+                    # Calculate Long-Run Volatility: sqrt(omega / (1 - alpha - beta))
+                    'long_term_vol': np.sqrt(res.params['omega'] / (1.0 - res.params['alpha[1]'] - res.params['beta[1]'])) / 100.0
                 }
             except Exception as e:
-                print(f"GARCH fit failed for regime {r}: {e}")
-                params[r] = {
-                    'method': 'simple',
-                    'std': rrets.std() / 100.0,
-                    'mean': rrets.mean() / 100.0,
-                    'jump_lambda': 0.01
-                }
+                # print(f"GARCH fit failed or unstable for regime {r}: {e}")
+                
+                # Bug 12 Fix: Use Global Fallback
+                if global_params:
+                    params[r] = global_params.copy()
+                    params[r]['note'] = 'global_fallback'
+                else:
+                    params[r] = {
+                        'method': 'simple',
+                        'std': rrets.std() / 100.0,
+                        'mean': rrets.mean() / 100.0,
+                        'long_term_vol': rrets.std() / 100.0,
+                        'jump_lambda': 0.01
+                    }
         
+        # Post-process: Classify Regimes by Volatility
+        # Sort regimes by long_term_vol
+        for x in params:
+             print(f"DEBUG: Regime {x} Vol: {params[x]['long_term_vol']}")
+        
+        sorted_regimes = sorted(params.keys(), key=lambda x: params[x]['long_term_vol'])
+        print(f"DEBUG: Sorted: {sorted_regimes}")
+        
+        n = len(sorted_regimes)
+        for i, r in enumerate(sorted_regimes):
+            if i == 0:
+                params[r]['regime_type'] = 'Bull'
+                params[r]['jump_lambda'] = 0.005 # Low jump prob
+            elif i == n - 1:
+                params[r]['regime_type'] = 'Bear'
+                params[r]['jump_lambda'] = 0.05 # High jump prob
+            else:
+                params[r]['regime_type'] = 'Transition'
+                params[r]['jump_lambda'] = 0.02
+
         return params
 
-    def simulate_paths(self, start_price, start_regime, params, transmat=None, days=730, sims=1000, cap=0.3, seed=None, conservative=False):
+    def simulate_paths(self, start_price, start_regime, params, transmat=None, days=730, sims=1000, cap=0.3, seed=None, conservative=False, engine='legacy'):
         """
         Simulate paths using Regime-Switching GARCH + Jump Diffusion.
         transmat: Transition matrix (n_states x n_states). If None, regime is fixed.
+        engine: 'legacy' (default), 'numpy', 'numba', 'torch'
         """
+        # Dispatch to Version 3 Engines
+        if engine == 'numpy' and vectorized_simulate:
+            return vectorized_simulate(start_price, start_regime, params, transmat, days, sims, conservative, seed)
+        elif engine == 'numba' and numba_simulate_wrapper:
+            return numba_simulate_wrapper(start_price, start_regime, params, transmat, days, sims, conservative, seed)
+        elif engine == 'torch' and torch_simulate:
+            return torch_simulate(start_price, start_regime, params, transmat, days, sims, conservative)
+        
+        # Legacy Python loop implementation ("v1/v2")
+
         rng = np.random.default_rng(seed)
-        end_prices = np.zeros(sims)
-        all_paths = np.zeros((sims, days + 1))
-        all_paths[:, 0] = start_price
+        end_prices = np.zeros(sims, dtype=np.float64)
+        all_paths = np.zeros((sims, days + 1), dtype=np.float64)
+        all_paths[:, 0] = float(start_price)
         
         n_regimes = len(params)
-        regimes_list = list(params.keys()) # usually 0, 1, 2...
+        if transmat is not None:
+             n_regimes = transmat.shape[0]
         
         for s in range(sims):
             price = start_price
             regime = start_regime
+            prev_regime = regime
             
-            # Initialize Volatility
+            # Initialize Volatility and Shock
             if params[regime]['method'] == 'garch':
-                vol = params[regime]['garch_res'].conditional_volatility[-1] / 100.0
+                # Initial vol from the last observation of the fitted model
+                vol = params[regime]['garch_res'].conditional_volatility.iloc[-1] / 100.0
+                # Initial shock from the last observation
+                prev_shock_pct = params[regime].get('last_resid', 0.0)
             else:
                 vol = params[regime]['std']
+                prev_shock_pct = 0.0
 
             for d in range(1, days + 1):
                 # 0. Regime Transition
                 if transmat is not None:
-                    # Sample next regime based on transition probabilities
-                    # transmat[i, j] is prob of going from i to j
                     probs = transmat[regime]
+                    # Normalize probs just in case
+                    probs = probs / probs.sum()
                     regime = rng.choice(n_regimes, p=probs)
                 
-                p = params[regime]
+                # Check for regime switch
+                if regime != prev_regime:
+                    # Reset volatility to long-term average of new regime
+                    # params must have the regime key. If fit with n_regimes, it should.
+                    if regime in params:
+                        vol = params[regime]['long_term_vol']
+                    else:
+                        # Fallback if params missing (shouldn't happen if initialized right)
+                        vol = params[0]['long_term_vol']
+                    
+                    prev_regime = regime
+
+                p = params.get(regime, params[0]) # Safe fallback
                 
                 if p['method'] == 'garch':
                     # 1. Forecast next-day variance
                     vol_pct = vol * 100.0
-                    var_pct = p['omega'] + p['alpha'] * (vol_pct**2) + p['beta'] * (vol_pct**2)
+                    # Correct GARCH recursion: omega + alpha * epsilon_{t-1}^2 + beta * sigma_{t-1}^2
+                    var_pct = p['omega'] + p['alpha'] * (prev_shock_pct**2) + p['beta'] * (vol_pct**2)
                     vol_pct = np.sqrt(var_pct)
                     vol = vol_pct / 100.0
                     
                     # 2. Draw return from Student-t
-                    from scipy.stats import t
                     df = max(3, p['t_df'])
                     if conservative:
                         df = max(df, 8)
                         
+                    # Standardized t-distribution shock
                     shock_std = t.rvs(df, random_state=rng) / np.sqrt(df/(df-2))
                     ret = shock_std * vol
                     
+                    # Update previous shock for next step
+                    prev_shock_pct = ret * 100.0
+                    
                 else:
                     ret = rng.normal(p['mean'], p['std'])
+                    # For simple regime, shock is return minus mean (approx)
+                    prev_shock_pct = (ret - p['mean']) * 100.0
                 
                 # 3. Jump Component
                 jump_lambda = p['jump_lambda']
@@ -123,26 +259,43 @@ class AdvancedSimulator:
                     jump_lambda *= 0.5
                     
                 if rng.random() < jump_lambda:
-                    scale = 0.2
+                    # Bug 5 Fix: Reduced scale from 0.2 to 0.04 (4% std for jumps)
+                    scale = 0.04 
                     if conservative:
-                        scale = 0.1
+                        scale = 0.02
                         
+                    # Heavy-tailed jump magnitude (Lognormal-ish)
+                    # exp(N(0, 0.04)) - 1 is approx centered at 0 with small skew.
+                    # This gives jumps ~ +4% to +8% typically.
                     jump_mag = np.exp(rng.normal(0, scale)) - 1
                     
-                    if regime > 0: # Bear/Crash
-                        direction = -1 if rng.random() < 0.7 else 1
+                    # Bug 6 Fix: Use regime_type for direction logic
+                    # Bear -> Negative bias
+                    # Bull -> Positive bias (or mixed)
+                    rtype = p.get('regime_type', 'Transition')
+                    
+                    if rtype == 'Bear':
+                        # Mostly down jumps
+                        direction = -1 if rng.random() < 0.8 else 1 
+                    elif rtype == 'Bull':
+                        # Mostly up jumps
+                        direction = 1 if rng.random() < 0.7 else -1
                     else:
-                        direction = 1 if rng.random() < 0.6 else -1
+                        # Mixed
+                        direction = 1 if rng.random() < 0.5 else -1
                         
                     jump = direction * jump_mag
                     ret += jump
                 
                 # 4. Cap / Liquidity Constraint
-                current_cap = cap
+                # Bug 11 Fix: Soft Liquidity Cap (Tanh)
+                # Maps (-inf, inf) -> (-limit, limit)
+                # limit = 0.50 (50%) allows crashes but prevents explosion
+                liq_limit = 0.50
                 if conservative:
-                    current_cap = 0.15
-                    
-                ret = np.clip(ret, -current_cap, current_cap)
+                    liq_limit = 0.25
+                
+                ret = liq_limit * np.tanh(ret / liq_limit)
                 
                 price *= (1 + ret)
                 all_paths[s, d] = price
@@ -157,50 +310,78 @@ class AdvancedSimulator:
             if h <= days:
                 prices_at_h = all_paths[:, h]
                 quantiles[h] = {
-                    'p10': np.percentile(prices_at_h, 10),
-                    'p50': np.percentile(prices_at_h, 50),
-                    'p90': np.percentile(prices_at_h, 90)
+                    'p10': float(np.percentile(prices_at_h, 10)),
+                    'p50': float(np.percentile(prices_at_h, 50)),
+                    'p90': float(np.percentile(prices_at_h, 90))
                 }
             
         return {
-            'paths': all_paths, # Full paths
+            'paths': all_paths, 
             'quantiles': quantiles
         }
 
     def block_bootstrap(self, returns: pd.Series, start_price, days=30, sims=1000, block_size=10, seed=None):
         """
         Empirical Block Bootstrap for microcaps/non-stationary assets.
+        Returns full paths for visualization.
         """
         rng = np.random.default_rng(seed)
         rvals = returns.values
         n = len(rvals)
+        # Store full paths: (sims, days + 1)
+        all_paths = np.zeros((sims, days + 1), dtype=np.float64)
+        all_paths[:, 0] = float(start_price)
+        
+        # Pre-allocate for performance
         end_prices = np.zeros(sims)
         
         for i in range(sims):
             price = start_price
-            days_left = days
+            days_filled = 0
             
-            while days_left > 0:
+            while days_filled < days:
                 # Pick a random block
-                idx = rng.integers(0, n - block_size)
-                # Determine length of this block (take full block or remaining days)
-                take = min(block_size, days_left)
+                if n <= block_size:
+                    idx = 0
+                    take = min(n, days - days_filled)
+                else:
+                    idx = rng.integers(0, n - block_size)
+                    take = min(block_size, days - days_filled)
                 
                 block_rets = rvals[idx : idx + take]
                 
                 # Apply returns
                 for r in block_rets:
                     price *= (1 + r)
-                
-                days_left -= take
+                    days_filled += 1
+                    all_paths[i, days_filled] = price
                 
             end_prices[i] = price
             
+        # Calculate Quantiles for specific horizons
+        horizons = [10, 30, 100, 365, 547, 730]
+        quantiles = {}
+        
+        for h in horizons:
+            # If horizon is within the simulated days
+            if h <= days:
+                prices_at_h = all_paths[:, h]
+                quantiles[h] = {
+                    'p10': float(np.percentile(prices_at_h, 10)),
+                    'p50': float(np.percentile(prices_at_h, 50)),
+                    'p90': float(np.percentile(prices_at_h, 90))
+                }
+            else:
+                # Bug 14 Fix: Return last available value if horizon exceeds days
+                prices_at_end = all_paths[:, -1]
+                quantiles[h] = {
+                    'p10': float(np.percentile(prices_at_end, 10)),
+                    'p50': float(np.percentile(prices_at_end, 50)),
+                    'p90': float(np.percentile(prices_at_end, 90))
+                }
+
         return {
-            'final_prices': end_prices,
-            'quantiles': {
-                'p10': np.percentile(end_prices, 10),
-                'p50': np.percentile(end_prices, 50),
-                'p90': np.percentile(end_prices, 90)
-            }
+            'paths': all_paths,
+            'quantiles': quantiles,
+            'method': 'Bootstrap'
         }
