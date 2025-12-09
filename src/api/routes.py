@@ -16,6 +16,7 @@ from src.models.registry import ModelRegistry
 from src.features.pipeline import FeaturePipeline
 from src.core.database import get_db, add_to_watchlist, remove_from_watchlist, get_watchlist, get_market_overview_logic
 from src.core.cache import timed_cache
+from src.core.monitoring import monitor
 
 router = APIRouter()
 
@@ -26,7 +27,7 @@ TOP_SP500 = [
     "JPM", "V", "XOM", "JNJ", "MA", "PG", "HD", "COST", "AVGO", "CVX",
     "MRK", "ABBV", "PEP", "KO", "BAC", "ADBE", "WMT", "MCD", "CSCO", "CRM",
     "ACN", "TMO", "LIN", "AMD", "NFLX", "ABT", "DHR", "ORCL", "CMCSA", "DIS",
-    "WFC", "TXN", "VZ", "NEE", "PM", "UPS", "NKE", "INTC", "RTX", "MS"    "WFC", "TXN", "VZ", "NEE", "PM", "UPS", "NKE", "INTC", "RTX", "MS"
+    "WFC", "TXN", "VZ", "NEE", "PM", "UPS", "NKE", "INTC", "RTX", "MS"
 ]
 
 # --- Live Logs Buffer ---
@@ -65,7 +66,6 @@ async def stream_simulation_logs(request: Request):
 # Keep legacy endpoint for history fetching if needed, or deprecate
 @router.get("/simulation/logs")
 def get_simulation_logs():
-    """Return the latest simulation logs."""
     return {"logs": list(SIMULATION_LOGS)}
 
 @router.delete("/simulation/logs")
@@ -189,51 +189,6 @@ def get_market_overview():
     Get market overview for Top 50 S&P 500 stocks.
     Cached and refreshes at 10am, 12pm, 2pm, 4pm.
     """
-    if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
-        
-    symbols = []
-    if wishlist_repo:
-        try:
-            symbols = wishlist_repo.get_all_symbols()
-        except Exception as e:
-            print(f"Warning: Wishlist fetch failed: {e}")
-            
-    if not symbols:
-        # Default symbols if watchlist empty or DB failed
-        symbols = ["SPY", "QQQ", "IWM", "DIA", "GLD", "BTC-USD", "ETH-USD", "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA"]
-        
-    overview = []
-    for sym in symbols:
-        try:
-            # This will fetch from DB or compute & save
-            ov = market_service.get_overview(sym, date)
-            # Convert Pydantic to dict
-            ov_dict = ov.model_dump()
-            # Add legacy fields for frontend compatibility if needed
-            # Frontend expects: symbol, date, price, volatility, regime, trend
-            ov_dict['trend'] = "Neutral" # Placeholder
-            overview.append(ov_dict)
-        except Exception as e:
-            print(f"Error for {sym}: {e}")
-            continue
-            
-    return {"overview": overview}
-
-@router.get("/simulation/advanced/{symbol}")
-def get_advanced_simulation(symbol: str, date: Optional[str] = None, horizons: str = "10,30,100,365,547,730", method: str = "garch", conservative: bool = False):
-    """
-    Run advanced realistic simulation.
-    """
-    if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
-        
-    # If horizons passed as string (from query), parse it
-    if isinstance(horizons, str):
-        horizon_list = [int(h) for h in horizons.split(",")]
-    else:
-        horizon_list = [10, 30, 100, 365, 547, 730]
-    
     try:
         return _cached_sp500_overview()
     except Exception as e:
@@ -726,19 +681,32 @@ def save_simulation(data: dict):
 
 @router.get("/indices")
 def get_available_indices():
-    """Return list of available indices for training"""
+    """Return list of available indices for training (Optimized Free Tier)"""
+    # Map symbols to names
+    names = {
+        "^GSPC": "S&P 500",
+        "^IXIC": "Nasdaq Composite",
+        "^RUT": "Russell 2000",
+        "^VIX": "CBOE Volatility Index",
+        "^TNX": "10-Year Treasury Yield",
+        "DX-Y.NYB": "US Dollar Index",
+        "CL=F": "Crude Oil",
+        "GC=F": "Gold",
+        "^MEGACAP": "Mega-Cap Factor (Magnificent 10)"
+    }
+    
+    indices = []
+    # Tier 1
+    for sym in settings.TIER_1_INDICES:
+        indices.append({"symbol": sym, "name": names.get(sym, sym)})
+    # Tier 2
+    for sym in settings.TIER_2_INDICES:
+        indices.append({"symbol": sym, "name": names.get(sym, sym)})
+    # Factor
+    indices.append({"symbol": "^MEGACAP", "name": names.get("^MEGACAP", "^MEGACAP")})
+        
     return {
-        "indices": [
-            {"symbol": "^GSPC", "name": "S&P 500"},
-            {"symbol": "^IXIC", "name": "Nasdaq Composite"},
-            {"symbol": "^DJI", "name": "Dow Jones Industrial"},
-            {"symbol": "^RUT", "name": "Russell 2000"},
-            {"symbol": "^VIX", "name": "CBOE Volatility Index"},
-            {"symbol": "^TNX", "name": "10-Year Treasury Yield"},
-            {"symbol": "DX-Y.NYB", "name": "US Dollar Index"},
-            {"symbol": "CL=F", "name": "Crude Oil"},
-            {"symbol": "GC=F", "name": "Gold"}
-        ]
+        "indices": indices
     }
 
 from pydantic import BaseModel
@@ -953,3 +921,72 @@ def walk_forward_endpoint(req: WalkForwardRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# SYSTEM STATUS & LOGS
+# ============================================================================
+
+@router.get("/system/status")
+def get_system_status():
+    """Return health checks and rich task heartbeats."""
+    status = {
+        "api": "online",
+        "timestamp": datetime.now().isoformat(),
+        "database": "unknown",
+        "tasks": {}
+    }
+    
+    # 1. Check DB
+    try:
+        # Simple query
+        wl = get_watchlist()
+        status["database"] = "connected"
+    except Exception as e:
+        status["database"] = f"error: {str(e)}"
+        
+    # 2. Get Heartbeats
+    heartbeats = monitor.get_latest_heartbeats()
+    
+    # 3. Augment with timestamps from files if heartbeats missing (fallback)
+    if "DailyAutomation" not in heartbeats:
+        daily_report_dir = Path(settings.LOCAL_DATA_DIR) / "daily_reports"
+        if daily_report_dir.exists():
+            files = list(daily_report_dir.glob("daily_report_*.txt"))
+            if files:
+                latest = max(files, key=os.path.getmtime)
+                ts = datetime.fromtimestamp(latest.stat().st_mtime).isoformat()
+                heartbeats["DailyAutomation"] = {"status": "success (legacy)", "timestamp": ts, "details": {}}
+                
+    if "WeeklyTraining" not in heartbeats:
+        weekly_log_dir = Path(settings.LOCAL_DATA_DIR) / "logs"
+        if weekly_log_dir.exists():
+            files = list(weekly_log_dir.glob("weekly_train_*.log"))
+            if files:
+                latest = max(files, key=os.path.getmtime)
+                ts = datetime.fromtimestamp(latest.stat().st_mtime).isoformat()
+                heartbeats["WeeklyTraining"] = {"status": "success (legacy)", "timestamp": ts, "details": {}}
+
+    status["tasks"] = heartbeats
+    
+    return status
+
+@router.get("/system/logs")
+def get_system_logs():
+    """Return the content of the latest Daily Report."""
+    try:
+        daily_report_dir = Path(settings.LOCAL_DATA_DIR) / "daily_reports"
+        if not daily_report_dir.exists():
+            return {"content": "No reports directory found."}
+            
+        files = list(daily_report_dir.glob("daily_report_*.txt"))
+        if not files:
+            return {"content": "No daily reports found."}
+            
+        latest = max(files, key=os.path.getmtime)
+        with open(latest, "r") as f:
+            content = f.read()
+            
+        return {"filename": latest.name, "content": content}
+        
+    except Exception as e:
+        return {"content": f"Error reading logs: {str(e)}"}

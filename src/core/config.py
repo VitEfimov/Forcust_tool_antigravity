@@ -18,4 +18,9 @@ class Settings:
     STORAGE_TYPE: str = os.getenv("STORAGE_TYPE", "sqlite") # sqlite, mongo, excel
     LOCAL_DATA_DIR: str = os.getenv("LOCAL_DATA_DIR", "data/local")
 
+    # Feature Tiers (Free Tier Optimization)
+    TIER_1_INDICES: list = ['^GSPC', '^VIX', '^TNX', 'DX-Y.NYB', 'CL=F']
+    TIER_2_INDICES: list = ['^IXIC', '^RUT', 'GC=F']
+    MEGA_CAP_COMPONENTS: list = ['AAPL', 'MSFT', 'AMZN', 'GOOGL', 'NVDA', 'META', 'BRK-B', 'JPM', 'JNJ', 'TSLA']
+
 settings = Settings()
