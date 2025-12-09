@@ -317,31 +317,50 @@ def main():
         
         # 1. Watchlist
         watchlist = get_watchlist()
-        target_symbol = 'SPY' 
-        if len(watchlist) > 0: target_symbol = watchlist[0] # Focus on primary
         
-        # Step 1: Update Data
+        # Step 1: Update Data (Fetches All: Macros, Watchlist, Megacap)
         loader = step_1_update_data(watchlist)
         
-        # Step 2: Walk-Forward (ML + Meta)
-        wf_data = step_2_walk_forward(target_symbol, loader)
-        if not wf_data:
-            print("Walk-Forward Failed. Aborting.")
-            monitor.log_heartbeat("DailyAutomation", "error", {"error": "Walk-Forward returned None"}, time.time() - start_time)
-            return
-            
-        # Step 4: Simulation
-        sim_data = step_4_simulation(target_symbol, loader, wf_data['current_price'])
+        # Define Targets for Deep Analysis (Free Tier Friendly)
+        targets = ['SPY', '^MEGACAP']
         
-        # Step 5: Generate Report
-        report = generate_report_content(target_symbol, loader, wf_data, sim_data)
+        # Optional: Add top user watchlist item if not present
+        if watchlist and watchlist[0] not in targets:
+             targets.append(watchlist[0])
+             
+        # Run Analysis Loop
+        final_reports = []
+        
+        for target_symbol in targets:
+            print(f"--- Analyzing {target_symbol} ---")
+            try:
+                # Step 2: Walk-Forward (ML + Meta)
+                wf_data = step_2_walk_forward(target_symbol, loader)
+                if not wf_data:
+                    print(f"Walk-Forward Failed for {target_symbol}. Skipping.")
+                    continue
+                    
+                # Step 4: Simulation
+                sim_data = step_4_simulation(target_symbol, loader, wf_data['current_price'])
+                
+                # Step 5: Generate Report
+                report_text = generate_report_content(target_symbol, loader, wf_data, sim_data)
+                final_reports.append(report_text)
+                
+                monitor.log_heartbeat("DailyAnalysis", "success", {"symbol": target_symbol})
+                
+            except Exception as e:
+                logger.error(f"Analysis failed for {target_symbol}: {e}")
+        
+        # Combine Reports
+        full_report = "\n\n".join(final_reports)
         
         # Save Report
         report_file = REPORT_DIR / f"daily_report_{datetime.now().strftime('%Y-%m-%d')}.txt"
         with open(report_file, "w") as f:
-            f.write(report)
+            f.write(full_report)
             
-        print(report)
+        print(full_report)
         print(f"\nReport saved to: {report_file}")
         
         # Cleanup Old Reports
@@ -351,10 +370,8 @@ def main():
         
         duration = time.time() - start_time
         monitor.log_heartbeat("DailyAutomation", "success", {
-            "symbol": target_symbol,
-            "regime": wf_data.get('regime', 'unknown'),
-            "reliability": wf_data.get('reliability_score', 0),
-            "updated_symbols": len(watchlist) + 5
+            "targets": targets,
+            "updated_symbols": len(watchlist) + 10
         }, duration)
         
     except Exception as e:

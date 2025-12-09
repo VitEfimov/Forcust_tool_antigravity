@@ -4,7 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import API_URL from '../config';
 
 const AdvancedSimulationV2 = () => {
-    const [symbol, setSymbol] = useState('AAPL');
+    const [symbol, setSymbol] = useState('SPY'); // Default to Market (SPY)
     const [conservative, setConservative] = useState(true); // Default to Conservative (Thinner tails)
     const [engine, setEngine] = useState('ensemble'); // Default to Ensemble Professional
     const [data, setData] = useState(null);

@@ -7,6 +7,7 @@ import pandas as pd
 from collections import deque
 import numpy as np
 import math
+from pathlib import Path
 from datetime import datetime, timedelta
 import yfinance as yf
 
