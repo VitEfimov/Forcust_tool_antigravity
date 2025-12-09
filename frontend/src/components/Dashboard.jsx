@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import API_URL from '../config';
 
 const Dashboard = () => {
@@ -53,110 +52,94 @@ const Dashboard = () => {
                 <div className="content">
                     <div className="summary-card">
                         <h2>{data.symbol}</h2>
-                        <p>Date: {data.date}</p>
-                        <p>Current Price: ${data.current_price.toFixed(2)}</p>
-                        <p>Regime: {data.regime.label || (data.regime.current === 0 ? 'Low Volatility' : 'High Volatility')}</p>
+                        <p>Current Price: ${data.current_price?.toFixed(2)}</p>
+                        <p>Regime: <span style={{
+                            color: data.regime?.includes('Low') ? '#66ff66' : '#ff6666',
+                            fontWeight: 'bold'
+                        }}>{data.regime || 'Unknown'}</span></p>
                     </div>
 
-                    <div className="forecasts-grid">
-                        {Object.entries(data.forecasts).map(([horizon, forecast]) => (
-                            forecast ? (
-                                <div key={horizon} className={`forecast-card ${forecast.expected_return_pct > 0 ? 'bullish' : 'bearish'}`}>
-                                    <h3>{horizon} Horizon</h3>
-                                    <p className="return">{forecast.expected_return_pct > 0 ? '+' : ''}{forecast.expected_return_pct.toFixed(2)}%</p>
-                                    <p className="target">Target: ${forecast.target_price.toFixed(2)}</p>
-                                    <p className="date">By: {forecast.target_date}</p>
-                                </div>
-                            ) : (
-                                <div key={horizon} className="forecast-card neutral">
-                                    <h3>{horizon} Horizon</h3>
-                                    <p>Insufficient Data</p>
-                                </div>
-                            )
-                        ))}
-                    </div>
-
-                    <div className="simulation-section" style={{ marginTop: '2rem' }}>
-                        <h3>Simulation & Risk Analysis</h3>
+                    <div className="forecasts-section" style={{ marginTop: '2rem' }}>
+                        <h3>📊 Multi-Horizon Forecast</h3>
                         <div className="table-container" style={{ overflowX: 'auto' }}>
-                            <table className="overview-table">
+                            <table className="overview-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
-                                    <tr>
-                                        <th>Horizon</th>
-                                        <th>ML Forecast (Target)</th>
-                                        <th>P10 (Bearish)</th>
-                                        <th>P50 (Median)</th>
-                                        <th>P90 (Bullish)</th>
-                                        <th>Risk Analysis</th>
+                                    <tr style={{ borderBottom: '2px solid #333' }}>
+                                        <th style={{ textAlign: 'left', padding: '0.8rem' }}>Horizon</th>
+                                        <th style={{ textAlign: 'right', padding: '0.8rem' }}>ML Forecast</th>
+                                        <th style={{ textAlign: 'right', padding: '0.8rem' }}>MC P10 (Bear)</th>
+                                        <th style={{ textAlign: 'right', padding: '0.8rem' }}>MC P50 (Base)</th>
+                                        <th style={{ textAlign: 'right', padding: '0.8rem' }}>MC P90 (Bull)</th>
+                                        <th style={{ textAlign: 'left', padding: '0.8rem' }}>Risk Assessment</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {Object.entries(data.forecasts).map(([horizon, forecast]) => (
-                                        forecast && forecast.simulation ? (
-                                            <tr key={horizon}>
-                                                <td>{horizon}</td>
-                                                <td>${forecast.target_price.toFixed(2)}</td>
-                                                <td className="bearish-text">${forecast.simulation.p10.toFixed(2)}</td>
-                                                <td>${forecast.simulation.p50.toFixed(2)}</td>
-                                                <td className="bullish-text">${forecast.simulation.p90.toFixed(2)}</td>
-                                                <td style={{ fontStyle: 'italic', color: '#aaa' }}>{forecast.analysis}</td>
-                                            </tr>
-                                        ) : null
+                                    {data.forecasts && data.forecasts.map((f) => (
+                                        <tr key={f.horizon} style={{ borderBottom: '1px solid #2a2a2a' }}>
+                                            <td style={{ padding: '0.8rem', fontWeight: 'bold' }}>{f.horizon}d</td>
+                                            <td style={{
+                                                padding: '0.8rem',
+                                                textAlign: 'right',
+                                                color: f.ml_forecast_pct > 0 ? '#66ff66' : f.ml_forecast_pct < 0 ? '#ff6666' : '#aaa'
+                                            }}>
+                                                {f.ml_forecast_pct > 0 ? '+' : ''}{f.ml_forecast_pct?.toFixed(2)}%
+                                            </td>
+                                            <td style={{
+                                                padding: '0.8rem',
+                                                textAlign: 'right',
+                                                color: '#ff6666'
+                                            }}>
+                                                {f.mc_p10_pct > 0 ? '+' : ''}{f.mc_p10_pct?.toFixed(2)}%
+                                            </td>
+                                            <td style={{
+                                                padding: '0.8rem',
+                                                textAlign: 'right',
+                                                color: f.mc_p50_pct > 0 ? '#66ff66' : f.mc_p50_pct < 0 ? '#ff6666' : '#aaa'
+                                            }}>
+                                                {f.mc_p50_pct > 0 ? '+' : ''}{f.mc_p50_pct?.toFixed(2)}%
+                                            </td>
+                                            <td style={{
+                                                padding: '0.8rem',
+                                                textAlign: 'right',
+                                                color: '#66ff66'
+                                            }}>
+                                                {f.mc_p90_pct > 0 ? '+' : ''}{f.mc_p90_pct?.toFixed(2)}%
+                                            </td>
+                                            <td style={{
+                                                padding: '0.8rem',
+                                                color: f.risk_assessment?.includes('Upside') ? '#66ff66' :
+                                                    f.risk_assessment?.includes('Downside') ? '#ff6666' : '#888'
+                                            }}>
+                                                {f.risk_assessment}
+                                            </td>
+                                        </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
                     </div>
 
-                    <div className="model-breakdown-section" style={{ marginTop: '2rem' }}>
-                        <h3>Model Contribution Breakdown (10d Horizon)</h3>
-                        <table className="overview-table">
-                            <thead>
-                                <tr>
-                                    <th>Model Component</th>
-                                    <th>Raw Output (Log Return / Value)</th>
-                                    <th>Description</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {data.forecasts["10d"] && data.forecasts["10d"].components && Object.entries(data.forecasts["10d"].components).map(([key, value]) => (
-                                    <tr key={key}>
-                                        <td>{key}</td>
-                                        <td>{typeof value === 'number' ? value.toFixed(4) : value}</td>
-                                        <td>
-                                            {key === 'LightGBM' && 'Gradient Boosting Regressor'}
-                                            {key === 'Transformer' && 'Deep Learning Sequence Model'}
-                                            {key === 'GARCH Volatility' && 'Volatility Clustering Model'}
-                                            {key === 'Kalman Trend' && 'Noise-Filtered Trend Slope'}
-                                            {key === 'HMM Regime' && 'Market Regime Context'}
-                                            {key === 'Copula Adjustment' && 'Multi-Asset Correlation Stress'}
-                                            {key === 'Monte Carlo P50' && 'Probabilistic Median Price'}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div className="regime-section">
-                        <h3>Regime Probabilities</h3>
-                        <div className="regime-bar">
-                            <div
-                                className="regime-segment low-vol"
-                                style={{ width: `${data.regime.probs[0] * 100}%` }}
-                                title={`Low Vol: ${(data.regime.probs[0] * 100).toFixed(1)}%`}
-                            >
-                                Low Vol
-                            </div>
-                            <div
-                                className="regime-segment high-vol"
-                                style={{ width: `${data.regime.probs[1] * 100}%` }}
-                                title={`High Vol: ${(data.regime.probs[1] * 100).toFixed(1)}%`}
-                            >
-                                High Vol
-                            </div>
+                    <div className="history-section" style={{ marginTop: '2rem' }}>
+                        <h3>📈 Recent Price History</h3>
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
+                            gap: '0.5rem',
+                            maxHeight: '200px',
+                            overflowY: 'auto'
+                        }}>
+                            {data.history && data.history.slice(-10).map((h, i) => (
+                                <div key={i} style={{
+                                    background: '#1a1a1a',
+                                    padding: '0.5rem',
+                                    borderRadius: '4px',
+                                    textAlign: 'center'
+                                }}>
+                                    <div style={{ fontSize: '0.8rem', color: '#888' }}>{h.date}</div>
+                                    <div style={{ fontWeight: 'bold' }}>${h.price?.toFixed(2)}</div>
+                                </div>
+                            ))}
                         </div>
-                        <p>Current Regime: <strong>{data.regime.label || (data.regime.current === 0 ? 'Low Volatility' : 'High Volatility')}</strong></p>
                     </div>
                 </div>
             )}

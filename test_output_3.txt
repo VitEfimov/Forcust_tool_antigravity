@@ -1,0 +1,126 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.13.0, pytest-8.4.2, pluggy-1.6.0 -- C:\Users\15717\AppData\Local\Programs\Python\Python313\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\15717\Desktop\Forcust_tool_antigravity
+configfile: pyproject.toml
+plugins: anyio-4.12.0, base-url-2.1.0, playwright-0.7.2
+collecting ... collected 2 items
+
+tests/test_persistent_cache.py::test_persistent_cache_hit FAILED         [ 50%]
+tests/test_persistent_cache.py::test_persistent_cache_miss FAILED        [100%]
+
+================================== FAILURES ===================================
+__________________________ test_persistent_cache_hit __________________________
+
+tmp_path = WindowsPath('C:/Users/15717/AppData/Local/Temp/pytest-of-15717/pytest-5/test_persistent_cache_hit0')
+
+    def test_persistent_cache_hit(tmp_path):
+        """Test that _compute_market_overview loads from file if present."""
+    
+        # Setup mock directory
+        mock_settings.LOCAL_DATA_DIR = str(tmp_path)
+        save_dir = tmp_path / "market_overviews"
+        save_dir.mkdir()
+    
+        # Create a "today" file
+        today_str = datetime.now().strftime("%Y%m%d")
+        fake_data = {"overview": [{"symbol": "TEST", "price": 100, "source": "cache"}]}
+    
+        # Make a file with a timestamp
+        filename = f"overview_{today_str}_100000.json"
+        with open(save_dir / filename, "w") as f:
+            json.dump(fake_data, f)
+    
+        # Call function
+        result = _compute_market_overview(["TEST"])
+    
+        # Verify
+>       assert result == fake_data
+E       AssertionError: assert {'overview': []} == {'overview': [{'symbol': 'TEST', 'price': 100, 'source': 'cache'}]}
+E         
+E         Differing items:
+E         {'overview': []} != {'overview': [{'price': 100, 'source': 'cache', 'symbol': 'TEST'}]}
+E         
+E         Full diff:
+E           {
+E         -     'overview': [
+E         +     'overview': [],
+E         ?                  ++
+E         -         {
+E         -             'price': 100,
+E         -             'source': 'cache',
+E         -             'symbol': 'TEST',
+E         -         },
+E         -     ],
+E           }
+
+tests\test_persistent_cache.py:38: AssertionError
+---------------------------- Captured stdout call -----------------------------
+DEBUG: settings.LOCAL_DATA_DIR=data/local
+DEBUG: save_dir=data\local\market_overviews, exists=False
+[MARKET OVERVIEW] Fetching 1 symbols in batch...
+Error processing TEST: 'Close'
+[MARKET OVERVIEW] Successfully fetched 0 symbols
+_________________________ test_persistent_cache_miss __________________________
+
+tmp_path = WindowsPath('C:/Users/15717/AppData/Local/Temp/pytest-of-15717/pytest-5/test_persistent_cache_miss0')
+
+    def test_persistent_cache_miss(tmp_path):
+        """Test that it falls back to fetch if no file exists."""
+    
+        mock_settings.LOCAL_DATA_DIR = str(tmp_path)
+        # No file created
+    
+        # Setup fallback mocks
+        mock_logic.return_value = {"overview": [{"symbol": "FALLBACK", "price": 50}]}
+        mock_sim.return_value = {
+            "analysis": {
+                30: {"risk_label": "Low", "volatility_outlook": "Stable", "median_change_pct": 0.01},
+                10: {"median_change_pct": 0.01},
+                100: {"median_change_pct": 0.01},
+                365: {"median_change_pct": 0.01},
+                547: {"median_change_pct": 0.01},
+                730: {"median_change_pct": 0.01}
+            },
+            "current_regime": {"label": "Bull"}
+        }
+    
+        # Call function
+        result = _compute_market_overview(["FALLBACK"])
+    
+        # Verify
+>       assert result["overview"][0]["symbol"] == "FALLBACK"
+               ^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests\test_persistent_cache.py:69: IndexError
+---------------------------- Captured stdout call -----------------------------
+DEBUG: settings.LOCAL_DATA_DIR=data/local
+DEBUG: save_dir=data\local\market_overviews, exists=False
+[MARKET OVERVIEW] Fetching 1 symbols in batch...
+[MARKET OVERVIEW] Successfully fetched 0 symbols
+------------------------------ Captured log call ------------------------------
+ERROR    yfinance:quote.py:592 HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"Quote not found for symbol: FALLBACK"}}}
+ERROR    yfinance:multi.py:185 
+1 Failed download:
+ERROR    yfinance:multi.py:198 ['FALLBACK']: YFTzMissingError('possibly delisted; no timezone found')
+=========================== short test summary info ===========================
+FAILED tests/test_persistent_cache.py::test_persistent_cache_hit - AssertionError: assert {'overview': []} == {'overview': [{'symbol': 'TEST', 'price': 100, 'source': 'cache'}]}
+  
+  Differing items:
+  {'overview': []} != {'overview': [{'price': 100, 'source': 'cache', 'symbol': 'TEST'}]}
+  
+  Full diff:
+    {
+  -     'overview': [
+  +     'overview': [],
+  ?                  ++
+  -         {
+  -             'price': 100,
+  -             'source': 'cache',
+  -             'symbol': 'TEST',
+  -         },
+  -     ],
+    }
+FAILED tests/test_persistent_cache.py::test_persistent_cache_miss - IndexError: list index out of range
+============================== 2 failed in 3.03s ==============================

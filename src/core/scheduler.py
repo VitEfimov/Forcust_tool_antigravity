@@ -1,85 +1,61 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from ..data.loader import DataLoader
-from ..features.pipeline import FeaturePipeline
-from ..models.hmm import RegimeDetector
-from ..models.lightgbm_forecaster import ForecastModel
-from ..models.registry import ModelRegistry
-# from ..core.database import Database
-from .config import settings
-import pandas as pd
+from datetime import datetime
+from pathlib import Path
+import json
+from src.core.config import settings
+from src.api.routes import _compute_market_overview, TOP_SP500
 
-def update_job():
+scheduler = BackgroundScheduler()
+
+def run_scheduled_market_overview():
     """
-    Daily update job:
-    1. Fetch new data.
-    2. Retrain models (or update).
-    3. Log results.
+    Task to run Market Overview updates and save the result.
+    Scheduled for 10:00 and 16:00.
     """
-    print("Starting daily update job...")
-    loader = DataLoader(settings.DATA_CACHE_DIR)
-    pipeline = FeaturePipeline()
-    registry = ModelRegistry(settings.MODELS_DIR)
-
-    for symbol in settings.SYMBOLS:
-        print(f"Updating {symbol}...")
-        # 1. Fetch Data
-        df = loader.get_data(symbol, use_cache=False) # Force refresh
-        if df.empty:
-            continue
-
-        # 2. Prepare Data
-        X, y, _ = pipeline.get_training_data(df)
+    print(f"[SCHEDULER] Running scheduled Market Overview at {datetime.now()}")
+    try:
+        # 1. Compute Overview (this triggers caching and ensures fresh data if cache expired)
+        # Note: We use the Logic function directly or the route helper. 
+        # _compute_market_overview is the one that enriches with Advanced Sim.
+        result = _compute_market_overview(TOP_SP500)
         
-        # 3. Train HMM
-        # We use returns for HMM
-        # Use Mini-cycle window
-        returns = df['Close'].pct_change().dropna()
-        returns_mini = returns.tail(settings.MINI_CYCLE_DAYS)
-        hmm = RegimeDetector()
-        hmm.fit(returns_mini)
-        registry.save_hmm(symbol, hmm)
-
-        # 4. Train GARCH (Volatility)
-        from ..models.garch_volatility import GarchModel
-        garch = GarchModel()
-        garch.fit(returns) # Use full history or mini-cycle? GARCH benefits from history.
-        registry.save_garch(symbol, garch)
-
-        # 5. Train Transformer (Deep Learning)
-        from ..models.transformer_model import TransformerForecaster
-        # Use Business Cycle window for Transformer
-        df_train = df.tail(settings.BUSINESS_CYCLE_DAYS)
-        X, y, _ = pipeline.get_training_data(df_train, horizon=10) # Base 10d model
-        if not X.empty:
-            transformer = TransformerForecaster(input_dim=X.shape[1])
-            transformer.fit(X, y, epochs=10) # Train a bit more in background
-            registry.save_transformer(symbol, transformer)
-
-        # 6. Train Forecast Models (LightGBM)
-        horizons = [10, 100, 365, 547, 730]
-        for h in horizons:
-            # Use Business Cycle window
-            df_train = df.tail(settings.BUSINESS_CYCLE_DAYS)
-            X, y, _ = pipeline.get_training_data(df_train, horizon=h)
-            if X.empty:
-                continue
-            lgb_model = ForecastModel()
-            lgb_model.fit(X, y)
-            registry.save_forecast_model(symbol, lgb_model, h)
+        # 2. Save to Disk
+        save_dir = Path(settings.LOCAL_DATA_DIR) / "market_overviews"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"overview_{timestamp}.json"
+        filepath = save_dir / filename
+        
+        with open(filepath, "w") as f:
+            json.dump(result, f, indent=4)
             
-        # 7. Update Actuals in DB (Analysis Step)
-        current_price = df['Close'].iloc[-1]
-        current_date = str(df.index[-1].date())
-        # db = Database()
-        # db.update_actuals(symbol, current_date, float(current_price))
+        print(f"[SCHEDULER] Saved Market Overview to {filepath}")
         
-    print("Daily update job completed.")
+    except Exception as e:
+        print(f"[SCHEDULER] Error in scheduled task: {e}")
 
 def start_scheduler():
-    scheduler = BackgroundScheduler()
-    # Run every day at 6 PM
-    trigger = CronTrigger(hour=18, minute=0)
-    scheduler.add_job(update_job, trigger)
+    """Start the background scheduler."""
+    # Run at 10:00 AM
+    scheduler.add_job(
+        run_scheduled_market_overview,
+        CronTrigger(hour=10, minute=0),
+        id="overview_10am",
+        replace_existing=True
+    )
+    
+    # Run at 4:00 PM (16:00)
+    scheduler.add_job(
+        run_scheduled_market_overview,
+        CronTrigger(hour=16, minute=0),
+        id="overview_4pm",
+        replace_existing=True
+    )
+    
     scheduler.start()
-    return scheduler
+    print("[SCHEDULER] Background scheduler started (10am/4pm updates).")
+
+def stop_scheduler():
+    scheduler.shutdown()

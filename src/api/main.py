@@ -1,16 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .routes import router
-from ..core.scheduler import start_scheduler
+from ..core.scheduler import start_scheduler, stop_scheduler
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    scheduler = start_scheduler()
+    start_scheduler()
     yield
     # Shutdown
-    scheduler.shutdown()
+    stop_scheduler()
 
 app = FastAPI(title="Antigravity API", lifespan=lifespan)
 
@@ -28,8 +28,6 @@ app.include_router(router)
 @app.get("/")
 def root():
     return {"status": "ok", "message": "Antigravity API is running"}
-
-# Trigger reload (Final Fix)
 
 if __name__ == "__main__":
     import uvicorn
