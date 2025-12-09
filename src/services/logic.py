@@ -69,7 +69,7 @@ class MarketService:
             regime=regime_label,
             price=current_price,
             volatility=volatility,
-            forecast_short={}, # Placeholder for now
+            forecast_short={}, 
             forecast_medium={},
             forecast_long={}
         )
@@ -122,7 +122,7 @@ class SimulationService:
         for h in horizons:
             # 2. Check DB -> SKIPPED
 
-            # 3. Compute
+            # Compute
             sim_res = self._get_simulator().simulate_paths(
                 start_price=current_price,
                 start_regime=current_regime,
@@ -138,7 +138,7 @@ class SimulationService:
                 symbol=symbol,
                 date=date,
                 horizon=h,
-                ml_forecast=0.0, # Placeholder
+                ml_forecast=0.0, 
                 p10=q['p10'],
                 p50=q['p50'],
                 p90=q['p90'],
