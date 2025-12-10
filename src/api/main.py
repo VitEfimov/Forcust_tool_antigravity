@@ -15,9 +15,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Antigravity API", lifespan=lifespan)
 
 # CORS
+origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://forcust-tool-antigravity.vercel.app"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
