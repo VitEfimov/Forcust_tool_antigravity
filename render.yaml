@@ -1,7 +1,8 @@
 services:
-  # 1. Web Service (API)
+  # 1. Web Service (API + In-Process Scheduler)
   - type: web
     name: forecasting-api
+    plan: free
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
@@ -9,38 +10,9 @@ services:
       - key: PYTHON_VERSION
         value: 3.9.18
       - key: DATABASE_URL
-        value: sqlite:///./data/forecast.db
+        value: sqlite:///./data/forecasts.db
       - key: DATA_CACHE_DIR
         value: ./data
       - key: LOCAL_DATA_DIR
         value: ./data
 
-  # 2. Cron Job: Daily Automation (08:00 UTC)
-  - type: cron
-    name: daily-automation
-    env: python
-    schedule: "0 8 * * *"
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m src.jobs.daily_run
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.9.18
-      - key: DATA_CACHE_DIR
-        value: ./data
-      - key: LOCAL_DATA_DIR
-        value: ./data
-
-  # 3. Cron Job: Weekly Training (Sunday 09:00 UTC)
-  - type: cron
-    name: weekly-training
-    env: python
-    schedule: "0 9 * * 0"
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m src.jobs.weekly_train
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.9.18
-      - key: DATA_CACHE_DIR
-        value: ./data
-      - key: LOCAL_DATA_DIR
-        value: ./data

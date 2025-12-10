@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     start_scheduler()
+    from src.core.monitoring import monitor
+    monitor.log_heartbeat("SystemStartup", "success", {"message": "API started"})
     yield
     # Shutdown
     stop_scheduler()

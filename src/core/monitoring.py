@@ -5,6 +5,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from src.core.config import settings
+
 # Path Configuration
 project_root = Path(__file__).resolve().parent.parent.parent
 LOGS_DIR = project_root / "data" / "logs"
@@ -14,6 +16,18 @@ HEARTBEAT_FILE = LOGS_DIR / "system_heartbeats.jsonl"
 class SystemMonitor:
     def __init__(self):
         self.log_file = HEARTBEAT_FILE
+        self.mongo_collection = None
+        
+        # Initialize MongoDB if configured
+        if settings.DATABASE_URL and "mongodb" in settings.DATABASE_URL:
+            try:
+                import pymongo
+                client = pymongo.MongoClient(settings.DATABASE_URL)
+                db = client.get_default_database()
+                self.mongo_collection = db.heartbeats
+                print(f"[MONITOR] Persistent Heartbeats Enabled (MongoDB)")
+            except Exception as e:
+                print(f"[MONITOR] Failed to connect to MongoDB: {e}")
 
     def log_heartbeat(self, task: str, status: str, details: dict = None, duration_sec: float = 0.0):
         """
@@ -33,11 +47,19 @@ class SystemMonitor:
             "details": details
         }
         
+        # 1. Local File (Always, for debugging/fallback)
         try:
             with open(self.log_file, "a") as f:
                 f.write(json.dumps(event) + "\n")
         except Exception as e:
-            print(f"Failed to log heartbeat: {e}")
+            print(f"Failed to log heartbeat locally: {e}")
+            
+        # 2. MongoDB (Persistent)
+        if self.mongo_collection:
+            try:
+                self.mongo_collection.insert_one(event)
+            except Exception as e:
+                print(f"Failed to log heartbeat to Mongo: {e}")
 
     def get_latest_heartbeats(self):
         """
@@ -45,6 +67,29 @@ class SystemMonitor:
         Returns a dict: { "TaskName": {event_dict}, ... }
         """
         latest_map = {}
+        
+        # Priority: MongoDB (Persistent) > Local File (Ephemeral)
+        if self.mongo_collection:
+            try:
+                # Aggregate to get last entry for each task
+                pipeline = [
+                    {"$sort": {"timestamp": 1}},
+                    {"$group": {
+                        "_id": "$task",
+                        "last_event": {"$last": "$$ROOT"}
+                    }}
+                ]
+                results = list(self.mongo_collection.aggregate(pipeline))
+                for res in results:
+                    task = res["_id"]
+                    event = res["last_event"]
+                    if "_id" in event: del event["_id"] # clean for frontend
+                    latest_map[task] = event
+                return latest_map
+            except Exception as e:
+                print(f"[MONITOR] Mongo read failed: {e}. Falling back to file.")
+        
+        # Fallback: Local File
         if not self.log_file.exists():
             return {}
             
