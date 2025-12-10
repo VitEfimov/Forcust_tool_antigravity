@@ -23,8 +23,12 @@ class SystemMonitor:
             try:
                 import pymongo
                 client = pymongo.MongoClient(settings.DATABASE_URL)
-                db = client.get_default_database()
-                self.mongo_collection = db.heartbeats
+                try:
+                    self.mongo_collection = client.get_default_database().heartbeats
+                except Exception:
+                    # Fallback if no db in connection string
+                    self.mongo_collection = client.get_database("antigravity").heartbeats
+                    
                 print(f"[MONITOR] Persistent Heartbeats Enabled (MongoDB)")
             except Exception as e:
                 print(f"[MONITOR] Failed to connect to MongoDB: {e}")

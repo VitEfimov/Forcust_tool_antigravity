@@ -16,7 +16,11 @@ class Database:
         if self.is_mongo:
             import pymongo
             self.client = pymongo.MongoClient(self.db_url)
-            self.db = self.client.get_default_database()
+            self.client = pymongo.MongoClient(self.db_url)
+            try:
+                self.db = self.client.get_default_database()
+            except Exception:
+                self.db = self.client.get_database("antigravity")
             self.forecasts = self.db.forecasts
         elif self.is_excel:
             # Excel Local Mode
