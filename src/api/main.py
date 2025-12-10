@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     start_scheduler()
+    from src.core.monitoring import monitor
+    monitor.log_heartbeat("SystemStartup", "success", {"message": "API started"})
     yield
     # Shutdown
     stop_scheduler()
@@ -15,9 +17,18 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Antigravity API", lifespan=lifespan)
 
 # CORS
+# We need to allow Vercel Previews, which use dynamic subdomains.
+# Using allow_origin_regex for flexibility.
+origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://forcust-tool-antigravity.vercel.app"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app", # Allow all Vercel subdomains (Previews)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
