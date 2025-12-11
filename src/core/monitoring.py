@@ -59,7 +59,7 @@ class SystemMonitor:
             print(f"Failed to log heartbeat locally: {e}")
             
         # 2. MongoDB (Persistent)
-        if self.mongo_collection:
+        if self.mongo_collection is not None:
             try:
                 self.mongo_collection.insert_one(event)
             except Exception as e:
@@ -73,7 +73,7 @@ class SystemMonitor:
         latest_map = {}
         
         # Priority: MongoDB (Persistent) > Local File (Ephemeral)
-        if self.mongo_collection:
+        if self.mongo_collection is not None:
             try:
                 # Aggregate to get last entry for each task
                 pipeline = [
