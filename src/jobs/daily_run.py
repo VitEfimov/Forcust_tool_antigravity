@@ -134,9 +134,9 @@ def step_1_update_data(watchlist):
     logger.info(f"Data Update Complete. {stats}")
     return loader
 
-def step_2_walk_forward(symbol, loader):
+def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, use_meta=True):
     """Run Walk-Forward Pipeline (Rolling Training)."""
-    logger.info(f"Step 2.2: Walk-Forward for {symbol}")
+    logger.info(f"Step 2.2: Walk-Forward for {symbol} (H={horizon}, W={train_window})")
     
     # Context Data
     external_data = {}
@@ -155,8 +155,10 @@ def step_2_walk_forward(symbol, loader):
         symbol=symbol,
         df=df,
         external_data=external_data,
-        prediction_horizon=10,
-        use_meta_learner=True,
+        prediction_horizon=horizon,
+        train_window=train_window,
+        step=step,
+        use_meta_learner=use_meta,
         verbose=False,
         log_func=logger.info
     )
@@ -321,65 +323,117 @@ def main():
         # Step 1: Update Data (Fetches All: Macros, Watchlist, Megacap)
         loader = step_1_update_data(watchlist)
         
-        # Define Targets for Deep Analysis (Free Tier Friendly)
-        targets = ['SPY', '^MEGACAP']
+        # Define Configurations based on User Request
+        # 1. SPY Special Configurations
+        ANALYSIS_CONFIGS = [
+            # SPY Walk-Forward 1
+            {"symbol": "SPY", "horizon": 10, "train_window": 730, "step": 30, "meta": True},
+            # SPY Walk-Forward 2
+            {"symbol": "SPY", "horizon": 100, "train_window": 1000, "step": 5, "meta": True},
+            # SPY Walk-Forward 3
+            {"symbol": "SPY", "horizon": 200, "train_window": 2000, "step": 1, "meta": True},
+        ]
         
-        # Optional: Add top user watchlist item if not present
-        if watchlist and watchlist[0] not in targets:
-             targets.append(watchlist[0])
+        # 2. V2 Simulation Targets (Default Daily Config: Horizon 10)
+        # SPY is already covered above, but for consistency in "Simulation" we ensure it runs.
+        # Adding others: NASDAQ (^IXIC), AAPL, NVDA, SPCE
+        standard_targets = ['^IXIC', 'AAPL', 'NVDA', 'SPCE']
+        
+        # Add Top Watchlist if missing
+        if watchlist and watchlist[0] not in standard_targets and watchlist[0] != 'SPY':
+             standard_targets.append(watchlist[0])
              
-        # Run Analysis Loop
-        final_reports = []
-        
+        for sym in standard_targets:
+            # Default Daily Config 
+            ANALYSIS_CONFIGS.append({
+                "symbol": sym, "horizon": 10, "train_window": 730, "step": 30, "meta": True
+            })
+
         # Run Analysis Loop
         final_reports = []
         
         from src.core.database import get_db
         db = get_db()
         
-        for target_symbol in targets:
-            print(f"--- Analyzing {target_symbol} ---")
+        from src.core.models import WalkForwardResult, AdvancedSimulationResult
+        
+        # Track processed symbols to avoid duplicate Simulations per run if multiple configs exist
+        processed_sim_symbols = set()
+
+        for config in ANALYSIS_CONFIGS:
+            target_symbol = config['symbol']
+            horizon = config['horizon']
+            
+            print(f"--- Analyzing {target_symbol} (H={horizon}) ---")
             try:
-                # 0. Update Actuals for past forecasts (Track Progress)
-                db.update_actuals(target_symbol, datetime.now().strftime("%Y-%m-%d"), 0.0) 
-                 # Note: update_actuals needs current_price. We catch it inside or fetch it?
-                 # db.update_actuals implementation takes (symbol, date, price).
-                 # We don't have price yet. Let's do it AFTER fetching loader data.
-                 
-                # Step 2: Walk-Forward (ML + Meta)
-                wf_data = step_2_walk_forward(target_symbol, loader)
+                # 0. Update Actuals (only need to do once per symbol/horizon tuple really)
+                # But actuals are tracked by date/symbol/horizon in DB? 
+                # Our simple update_actuals takes (symbol, date, price). It fixes ALL horizons.
+                # So we can just do it.
+                
+                # Step 2: Walk-Forward (ML + Meta) with Params
+                wf_data = step_2_walk_forward(
+                    target_symbol, loader, 
+                    horizon=horizon, 
+                    train_window=config['train_window'], 
+                    step=config['step'],
+                    use_meta=config['meta']
+                )
+                
                 if not wf_data:
                     print(f"Walk-Forward Failed for {target_symbol}. Skipping.")
                     continue
                 
-                # Update Actuals using the fresh current price
                 current_price = wf_data['current_price']
-                db.update_actuals(target_symbol, datetime.now().strftime("%Y-%m-%d"), current_price)
-                    
-                # Step 4: Simulation
-                sim_data = step_4_simulation(target_symbol, loader, current_price)
                 
-                # Step 5: Generate Report
+                # Update Actuals using the fresh current price
+                db.update_actuals(target_symbol, datetime.now().strftime("%Y-%m-%d"), current_price)
+                
+                # Step 4: Simulation (Run once per symbol per day to save time, unless specific horizon needed)
+                # The User request lists "Advanced Simulation V2" separately with a list of symbols.
+                # Typically Sim is multi-horizon. Let's run it once per symbol.
+                if target_symbol not in processed_sim_symbols:
+                    sim_data = step_4_simulation(target_symbol, loader, current_price)
+                    
+                    # Save Sim Result
+                    sim_result = AdvancedSimulationResult(
+                        symbol=target_symbol,
+                        date=datetime.now().strftime("%Y-%m-%d"),
+                        mc_p10=sim_data['mc_p10'],
+                        mc_p50=sim_data['mc_p50'],
+                        mc_p90=sim_data['mc_p90'],
+                        conservative_mode=False 
+                    )
+                    db.save_advanced_simulation_result(sim_result)
+                    processed_sim_symbols.add(target_symbol)
+                else:
+                    # Reuse previous sim data for report if needed
+                    # (Simplified: we just use placeholders or skip reporting section)
+                    sim_data = {"mc_p50": current_price, "mc_p10": current_price, "mc_p90": current_price}
+
+                
+                # Step 5: Generate Report (Only for H=10 or primary config to avoid log spam?)
+                # We'll generate for all but maybe group them.
                 report_text = generate_report_content(target_symbol, loader, wf_data, sim_data)
-                final_reports.append(report_text)
+                final_reports.append(f"CONFIG: H={horizon} | {report_text}")
+                
                 
                 # --- NEW: Save Trained Forecast to DB (User Request) ---
-                # Calculate target date (approximate, +10 days)
-                target_date = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
+                # Calculate target date based on horizon
+                # Horizon is trading days.
+                target_date = (datetime.now() + timedelta(days=int(horizon * 1.4))).strftime("%Y-%m-%d")
                 
-                # 1. Standard Forecast Table (Backwards Compatibility / Dashboard)
+                # 1. Standard Forecast Table
                 db.save_forecast(
                     date=datetime.now().strftime("%Y-%m-%d"),
                     symbol=target_symbol,
-                    horizon=10, 
+                    horizon=horizon, 
                     prediction=wf_data['ml_forecast_price'],
                     start_price=current_price,
                     target_date=target_date
                 )
 
-                # 2. Strict Pydantic Models (The "Rational Entities")
-                from src.core.models import WalkForwardResult, AdvancedSimulationResult
-                
+                # 2. Strict Pydantic Models
                 # A. Walk-Forward Result
                 wf_result = WalkForwardResult(
                     symbol=target_symbol,
@@ -390,20 +444,9 @@ def main():
                 )
                 db.save_walk_forward_result(wf_result)
                 
-                # B. Advanced Simulation Result
-                sim_result = AdvancedSimulationResult(
-                    symbol=target_symbol,
-                    date=datetime.now().strftime("%Y-%m-%d"),
-                    mc_p10=sim_data['mc_p10'],
-                    mc_p50=sim_data['mc_p50'],
-                    mc_p90=sim_data['mc_p90'],
-                    conservative_mode=False 
-                )
-                db.save_advanced_simulation_result(sim_result)
+                print(f"[DB] Saved intelligent models for {target_symbol} (H={horizon})")
                 
-                print(f"[DB] Saved intelligent models for {target_symbol}")
-                
-                monitor.log_heartbeat("DailyAnalysis", "success", {"symbol": target_symbol})
+                monitor.log_heartbeat("DailyAnalysis", "success", {"symbol": target_symbol, "horizon": horizon})
                 
             except Exception as e:
                 logger.error(f"Analysis failed for {target_symbol}: {e}")
