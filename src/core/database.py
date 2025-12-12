@@ -342,6 +342,89 @@ class Database:
             conn.close()
             return [dict(row) for row in rows]
 
+    def save_market_summary(self, summary: Dict):
+        """
+        Save a compact daily market summary.
+        summary: dict with keys [date, regime, vix, credit_spread, model_confidence, forecast_spy]
+        """
+        date = summary.get("date", datetime.now().strftime("%Y-%m-%d"))
+        
+        if self.is_mongo:
+            # Upsert based on date
+            self.db.market_summaries.update_one(
+                {"date": date},
+                {"$set": summary},
+                upsert=True
+            )
+        elif self.is_excel:
+            try:
+                summary_file = self.local_dir / "market_summaries.xlsx"
+                if summary_file.exists():
+                    df = pd.read_excel(summary_file)
+                else:
+                    df = pd.DataFrame()
+                
+                # Convert summary to flat dict (handle nested dicts like forecast_spy)
+                flat_summary = summary.copy()
+                if "forecast_spy" in flat_summary and isinstance(flat_summary["forecast_spy"], dict):
+                    flat_summary["spy_pred"] = flat_summary["forecast_spy"].get("pred")
+                    flat_summary["spy_upside"] = flat_summary["forecast_spy"].get("upside")
+                    del flat_summary["forecast_spy"]
+                    
+                new_row = pd.DataFrame([flat_summary])
+                
+                if not df.empty and "date" in df.columns:
+                    # Update if exists
+                    if date in df["date"].values:
+                        idx = df[df["date"] == date].index
+                        for col, val in flat_summary.items():
+                            df.loc[idx, col] = val
+                    else:
+                        df = pd.concat([df, new_row], ignore_index=True)
+                else:
+                     df = new_row
+                     
+                df.to_excel(summary_file, index=False)
+            except Exception as e:
+                print(f"Error saving excel summary: {e}")
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            # Ensure table exists
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS market_summaries (
+                    date TEXT PRIMARY KEY,
+                    regime TEXT,
+                    vix REAL,
+                    credit_spread REAL,
+                    model_confidence REAL,
+                    spy_pred REAL,
+                    json_data TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Prepare data
+            import json
+            spy_pred = 0.0
+            if "forecast_spy" in summary and isinstance(summary["forecast_spy"], dict):
+                spy_pred = summary["forecast_spy"].get("pred", 0.0)
+            
+            c.execute('''
+                INSERT OR REPLACE INTO market_summaries (date, regime, vix, credit_spread, model_confidence, spy_pred, json_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                date,
+                summary.get("regime"),
+                float(summary.get("vix", 0.0)),
+                float(summary.get("credit_spread", 0.0)),
+                float(summary.get("model_confidence", 0.0)),
+                float(spy_pred),
+                json.dumps(summary)
+            ))
+            conn.commit()
+            conn.close()
+
 # =============================================================================
 # Helper Functions (module-level exports)
 # =============================================================================

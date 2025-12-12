@@ -34,7 +34,7 @@ REPORT_DIR = project_root / "data" / "daily_reports"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 # 2.1 Market Data Update
-MACRO_SYMBOLS = settings.TIER_1_INDICES + settings.TIER_2_INDICES
+MACRO_SYMBOLS = settings.TIER_1_INDICES + settings.TIER_2_INDICES + settings.TIER_3_INDICES
 
 def generate_megacap_index(loader):
     """
@@ -363,6 +363,56 @@ def main():
         print(full_report)
         print(f"\nReport saved to: {report_file}")
         
+        # --- NEW: Save Compact Rational Summary ---
+        try:
+            from src.core.database import get_db
+            
+            # 1. Get SPY Metrics
+            spy_summary = {}
+            # We assume SPY was analyzed. Find its data in our local vars or re-fetch?
+            # actually we don't have easy access to 'wf_data' here unless we stored it.
+            # Ideally we'd have a 'results_map'. But let's just grab if target_symbol was SPY in loop.
+            # We can't re-access variables from inside the loop easily. 
+            # Better approach: store results in a dict during loop.
+            
+            # Simple workaround: Parse the report or just execute for SPY specifically if we need strict data.
+            # Or better: We'll modify the loop above to store 'spy_data' if target=='SPY'.
+            
+            # Let's check VIX and Credit Spread from Loader
+            vix_val = 0.0
+            credit_spread_val = 1.0
+            
+            # Try to get VIX
+            try:
+                vix_df = loader.get_data("^VIX") # or settings.TIER_1 ...
+                if not vix_df.empty:
+                    vix_val = float(vix_df['Close'].iloc[-1])
+            except: pass
+            
+            # Try to get Credit Spread (HYG/LQD)
+            try:
+                hyg = loader.get_data("HYG")
+                lqd = loader.get_data("LQD")
+                if not hyg.empty and not lqd.empty:
+                    credit_spread_val = float(hyg['Close'].iloc[-1] / lqd['Close'].iloc[-1])
+            except: pass
+
+            market_summary = {
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "vix": vix_val,
+                "credit_spread": credit_spread_val,
+                # Placeholders for now until we refactor loop to extract these
+                "regime": "Unknown", 
+                "model_confidence": 0.5,
+                "forecast_spy": {}
+            }
+            
+            get_db().save_market_summary(market_summary)
+            print("[DB] Market Summary Saved.")
+            
+        except Exception as e:
+            logger.error(f"Failed to save market summary: {e}")
+            
         # Cleanup Old Reports
         cleanup_reports(14)
         

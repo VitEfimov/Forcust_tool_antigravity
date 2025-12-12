@@ -38,6 +38,12 @@ class FeaturePipeline:
                     # Also maybe add 20d return for the index?
                     df[f"{name}_Ret_20d"] = df[col_name].pct_change(20)
 
+        # 3. Dedicated Credit Spread Feature (HYG / LQD)
+        if 'HYG_Close' in df.columns and 'LQD_Close' in df.columns:
+            # Ratio > 1 implies Risk On (Junk outperforming Grade)
+            # Ratio < 1 implies Risk Off
+            df['Credit_Spread_Ratio'] = df['HYG_Close'] / df['LQD_Close']
+
         # Create Target: Future log return over 'horizon' days
         future_close = df['Close'].shift(-horizon)
         df['Target'] = np.log(future_close / df['Close'])
