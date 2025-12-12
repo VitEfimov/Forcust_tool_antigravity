@@ -1006,3 +1006,27 @@ def get_system_logs():
         
     except Exception as e:
         return {"content": f"Error reading logs: {str(e)}"}
+@router.get("/system/heartbeats")
+def get_system_heartbeats(limit: int = 50):
+    """Get recent task activity (heartbeats)."""
+    return {"events": monitor.get_recent_heartbeats(limit)}
+
+@router.get("/system/status")
+def get_system_status():
+    """
+    Get system health status (Database, API, Tasks).
+    """
+    db_status = "offline"
+    try:
+        from src.core.database import get_db
+        # Simple check
+        get_db() 
+        db_status = "online"
+    except:
+        pass
+        
+    return {
+        "api": "online",
+        "database": db_status,
+        "tasks": monitor.get_latest_heartbeats()
+    }

@@ -112,5 +112,33 @@ class SystemMonitor:
             
         return latest_map
 
+    def get_recent_heartbeats(self, limit: int = 50) -> list:
+        """
+        Retrieve a flat list of the most recent heartbeat events across all tasks.
+        """
+        # 1. MongoDB
+        if self.mongo_collection is not None:
+            try:
+                events = list(self.mongo_collection.find({}, {"_id": 0}).sort("timestamp", -1).limit(limit))
+                return events
+            except Exception as e:
+                print(f"[MONITOR] Mongo read failed: {e}")
+        
+        # 2. Local File Fallback
+        events = []
+        if self.log_file.exists():
+            try:
+                # Read all lines (inefficient for large files but ok for log rotation)
+                with open(self.log_file, "r") as f:
+                    lines = f.readlines()
+                    for line in reversed(lines): # Read backwards
+                        try:
+                            if len(events) >= limit: break
+                            events.append(json.loads(line))
+                        except: continue
+            except Exception: pass
+            
+        return events
+
 # Global Instance
 monitor = SystemMonitor()

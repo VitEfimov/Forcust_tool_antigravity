@@ -13,15 +13,22 @@ const ModelStatus = () => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const [statusRes, logsRes] = await Promise.all([
-                    axios.get(`${API_URL}/system/status`),
-                    axios.get(`${API_URL}/system/logs`)
+                // Timeout: 120s (2 mins) for server wakeup
+                const config = { timeout: 120000 };
+
+                const [statusRes, heartbeatsRes, logsRes] = await Promise.all([
+                    axios.get(`${API_URL}/system/status`, config),
+                    axios.get(`${API_URL}/system/heartbeats?limit=50`, config),
+                    axios.get(`${API_URL}/system/logs`, config)
                 ]);
-                setStatus(statusRes.data);
+
+                // Merge status summary with full events list
+                // We use heartbeatsRes.data.events for the table
+                setStatus({ ...statusRes.data, tasks: heartbeatsRes.data.events });
                 setLogs(logsRes.data);
             } catch (err) {
                 console.error("Failed to fetch system status", err);
-                setStatus({ error: "Failed to connect to backend." });
+                setStatus({ error: "Failed to connect to backend (Timeout or Error)." });
             } finally {
                 setLoading(false);
             }
@@ -43,8 +50,8 @@ const ModelStatus = () => {
 
     if (loading) return <div className="dashboard"><h2>Loading Mission Control...</h2></div>;
 
-    // Transform Tasks Object to Array
-    const tasks = status?.tasks ? Object.entries(status.tasks).map(([name, data]) => ({ name, ...data })) : [];
+    // status.tasks is now an array from /system/heartbeats
+    const tasks = Array.isArray(status?.tasks) ? status.tasks : [];
 
     return (
         <div className="dashboard">
@@ -71,7 +78,7 @@ const ModelStatus = () => {
                 {/* 1. Task Health Table */}
                 <div className="card" style={{ marginBottom: '2rem', padding: '0' }}>
                     <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #333' }}>
-                        <h3 style={{ margin: 0 }}>Autonomic Task Heartbeats</h3>
+                        <h3 style={{ margin: 0 }}>Autonomic Task Heartbeats (Recent 50)</h3>
                     </div>
                     <div className="table-container">
                         <table className="indices-table">
@@ -79,7 +86,7 @@ const ModelStatus = () => {
                                 <tr>
                                     <th>Task Name</th>
                                     <th>Status</th>
-                                    <th>Last Run</th>
+                                    <th>Time</th>
                                     <th>Duration</th>
                                     <th>Metrics / Details</th>
                                 </tr>
@@ -90,7 +97,7 @@ const ModelStatus = () => {
                                 )}
                                 {tasks.map((task, i) => (
                                     <tr key={i}>
-                                        <td style={{ fontWeight: 'bold' }}>{task.name}</td>
+                                        <td style={{ fontWeight: 'bold' }}>{task.task || task.name}</td>
                                         <td>
                                             <span style={{
                                                 color: getStatusColor(task.status),
