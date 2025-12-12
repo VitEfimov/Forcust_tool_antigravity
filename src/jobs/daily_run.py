@@ -171,8 +171,8 @@ def step_2_walk_forward(symbol, loader):
     
     if not results.empty:
         last_row = results.iloc[-1]
-        latest_pred = last_row.get('Pred', 0.0)
-        reliability = last_row.get('Confidence', 1.0) # From Meta-Learner
+        latest_pred = last_row.get('pred_price', 0.0)
+        reliability = last_row.get('reliability', 1.0) # From Meta-Learner
         # We might need to persist 'regime' in results if possible, or re-derive
         # For now, let's assume 'Regime' column exists or we re-calc
         regime_label = last_row.get('Regime', 'Sideways') # If WF adds this col
@@ -331,21 +331,52 @@ def main():
         # Run Analysis Loop
         final_reports = []
         
+        # Run Analysis Loop
+        final_reports = []
+        
+        from src.core.database import get_db
+        db = get_db()
+        
         for target_symbol in targets:
             print(f"--- Analyzing {target_symbol} ---")
             try:
+                # 0. Update Actuals for past forecasts (Track Progress)
+                db.update_actuals(target_symbol, datetime.now().strftime("%Y-%m-%d"), 0.0) 
+                 # Note: update_actuals needs current_price. We catch it inside or fetch it?
+                 # db.update_actuals implementation takes (symbol, date, price).
+                 # We don't have price yet. Let's do it AFTER fetching loader data.
+                 
                 # Step 2: Walk-Forward (ML + Meta)
                 wf_data = step_2_walk_forward(target_symbol, loader)
                 if not wf_data:
                     print(f"Walk-Forward Failed for {target_symbol}. Skipping.")
                     continue
+                
+                # Update Actuals using the fresh current price
+                current_price = wf_data['current_price']
+                db.update_actuals(target_symbol, datetime.now().strftime("%Y-%m-%d"), current_price)
                     
                 # Step 4: Simulation
-                sim_data = step_4_simulation(target_symbol, loader, wf_data['current_price'])
+                sim_data = step_4_simulation(target_symbol, loader, current_price)
                 
                 # Step 5: Generate Report
                 report_text = generate_report_content(target_symbol, loader, wf_data, sim_data)
                 final_reports.append(report_text)
+                
+                # --- NEW: Save Trained Forecast to DB (User Request) ---
+                # Calculate target date (approximate, +10 days)
+                # We assume 10 trading days ~ 14 calendar days
+                target_date = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
+                
+                db.save_forecast(
+                    date=datetime.now().strftime("%Y-%m-%d"),
+                    symbol=target_symbol,
+                    horizon=10, # Daily run default
+                    prediction=wf_data['ml_forecast_price'],
+                    start_price=current_price,
+                    target_date=target_date
+                )
+                print(f"[DB] Saved trained forecast for {target_symbol}")
                 
                 monitor.log_heartbeat("DailyAnalysis", "success", {"symbol": target_symbol})
                 

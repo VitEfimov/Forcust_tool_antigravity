@@ -422,6 +422,51 @@ class Database:
                 float(spy_pred),
                 json.dumps(summary)
             ))
+            conn.close()
+
+    def save_market_overview(self, overview_data: Dict):
+        """
+        Save the full Market Overview JSON to the database.
+        """
+        timestamp = datetime.now()
+        date_str = timestamp.strftime("%Y-%m-%d")
+        
+        doc = {
+            "timestamp": timestamp,
+            "date": date_str,
+            "type": "market_overview",
+            "data": overview_data
+        }
+        
+        if self.is_mongo:
+            # We can use a Time Series collection or just a standard one.
+            # Standard 'market_overviews' collection.
+            self.db.market_overviews.insert_one(doc)
+            
+        elif self.is_excel:
+            # For Excel, saving the full JSON structure is messy.
+            # We might save just the latest one to a separate file, or try to flatten it?
+            # User specifically asked for DB, so file-based fallback is secondary.
+            # We'll stick to the existing behavior of scheduler saving to disk for file-based.
+            # But here we can maybe append to a log or skip.
+            pass
+            
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS full_market_overviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP,
+                    date TEXT,
+                    json_data TEXT
+                )
+            ''')
+            import json
+            c.execute('''
+                INSERT INTO full_market_overviews (timestamp, date, json_data)
+                VALUES (?, ?, ?)
+            ''', (timestamp, date_str, json.dumps(overview_data)))
             conn.commit()
             conn.close()
 

@@ -8,6 +8,7 @@ const ModelStatus = () => {
     const [status, setStatus] = useState(null);
     const [logs, setLogs] = useState({ content: 'Loading logs...' });
     const [loading, setLoading] = useState(true);
+    const [expandedTask, setExpandedTask] = useState(null);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -104,7 +105,18 @@ const ModelStatus = () => {
                                         <td>{new Date(task.timestamp).toLocaleString()}</td>
                                         <td>{task.duration_sec ? `${task.duration_sec}s` : '-'}</td>
                                         <td style={{ fontFamily: 'monospace', fontSize: '0.9rem', color: '#aaa' }}>
-                                            {JSON.stringify(task.details || {}).substring(0, 60)}...
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                                <span style={{ opacity: 0.6 }}>{JSON.stringify(task.details || {}).substring(0, 30)}...</span>
+                                                <button
+                                                    onClick={() => setExpandedTask(task)}
+                                                    style={{
+                                                        background: '#333', border: 'none', color: '#fff',
+                                                        padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem'
+                                                    }}
+                                                >
+                                                    View Full
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -145,6 +157,37 @@ const ModelStatus = () => {
                     )}
                 </div>
             </div>
+
+            {/* DETAILS MODAL */}
+            {expandedTask && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    zIndex: 9999
+                }} onClick={() => setExpandedTask(null)}>
+                    <div style={{
+                        background: '#1e1e1e', padding: '2rem', borderRadius: '12px',
+                        border: '1px solid #444', maxWidth: '800px', width: '90%', maxHeight: '80vh',
+                        display: 'flex', flexDirection: 'column'
+                    }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                            <h2 style={{ margin: 0 }}>🔍 Task Details: {expandedTask.name}</h2>
+                            <button onClick={() => setExpandedTask(null)} style={{
+                                background: 'transparent', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer'
+                            }}>×</button>
+                        </div>
+                        <div style={{
+                            background: '#000', padding: '1rem', borderRadius: '8px',
+                            overflow: 'auto', flex: 1, fontFamily: 'monospace', color: '#4f4'
+                        }}>
+                            <pre style={{ margin: 0 }}>{JSON.stringify(expandedTask.details, null, 2)}</pre>
+                        </div>
+                        <div style={{ marginTop: '1rem', textAlign: 'right', color: '#888', fontSize: '0.9rem' }}>
+                            Start Time: {new Date(expandedTask.timestamp).toLocaleString()} | Duration: {expandedTask.duration_sec}s
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

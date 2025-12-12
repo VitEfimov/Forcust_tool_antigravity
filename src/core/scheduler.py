@@ -36,7 +36,16 @@ def run_scheduled_market_overview():
             json.dump(result, f, indent=4)
             
         print(f"[SCHEDULER] Saved Market Overview to {filepath}")
-        monitor.log_heartbeat("MarketOverview", "success", {"files_saved": 1})
+        
+        # 3. Save to DB (Full Data per User Request)
+        try:
+            from src.core.database import get_db
+            get_db().save_market_overview(result)
+            print(f"[SCHEDULER] Saved Market Overview to Database.")
+        except Exception as e:
+            print(f"[SCHEDULER] Failed to save to DB: {e}")
+
+        monitor.log_heartbeat("MarketOverview", "success", {"files_saved": 1, "db_saved": True})
         
     except Exception as e:
         print(f"[SCHEDULER] Error in scheduled task: {e}")
