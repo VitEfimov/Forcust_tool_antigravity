@@ -33,3 +33,35 @@ class WishlistItem(BaseModel):
     symbol: str
     added_at: Optional[datetime] = None
     notes: Optional[str] = None
+
+class WalkForwardResult(BaseModel):
+    """
+    Model for Daily Walk-Forward Analysis (The 'Brain' Output).
+    """
+    symbol: str
+    date: str
+    prediction_price: float
+    reliability_score: float
+    regime_label: str
+    
+class AdvancedSimulationResult(BaseModel):
+    """
+    Model for Monte Carlo Stress Testing results.
+    """
+    symbol: str
+    date: str
+    mc_p10: float # Bear Case
+    mc_p50: float # Base Case
+    mc_p90: float # Bull Case
+    conservative_mode: bool
+    
+class MLTrainingResult(BaseModel):
+    """
+    Model for Weekly Training Metrics.
+    """
+    symbol: str
+    horizon: int
+    rmse: float
+    mae: float
+    features_importance: Dict[str, float] = {}
+    timestamp: datetime = datetime.now()

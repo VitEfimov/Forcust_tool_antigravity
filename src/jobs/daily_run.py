@@ -365,18 +365,43 @@ def main():
                 
                 # --- NEW: Save Trained Forecast to DB (User Request) ---
                 # Calculate target date (approximate, +10 days)
-                # We assume 10 trading days ~ 14 calendar days
                 target_date = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
                 
+                # 1. Standard Forecast Table (Backwards Compatibility / Dashboard)
                 db.save_forecast(
                     date=datetime.now().strftime("%Y-%m-%d"),
                     symbol=target_symbol,
-                    horizon=10, # Daily run default
+                    horizon=10, 
                     prediction=wf_data['ml_forecast_price'],
                     start_price=current_price,
                     target_date=target_date
                 )
-                print(f"[DB] Saved trained forecast for {target_symbol}")
+
+                # 2. Strict Pydantic Models (The "Rational Entities")
+                from src.core.models import WalkForwardResult, AdvancedSimulationResult
+                
+                # A. Walk-Forward Result
+                wf_result = WalkForwardResult(
+                    symbol=target_symbol,
+                    date=datetime.now().strftime("%Y-%m-%d"),
+                    prediction_price=wf_data['ml_forecast_price'],
+                    reliability_score=wf_data['reliability_score'],
+                    regime_label=wf_data['regime']
+                )
+                db.save_walk_forward_result(wf_result)
+                
+                # B. Advanced Simulation Result
+                sim_result = AdvancedSimulationResult(
+                    symbol=target_symbol,
+                    date=datetime.now().strftime("%Y-%m-%d"),
+                    mc_p10=sim_data['mc_p10'],
+                    mc_p50=sim_data['mc_p50'],
+                    mc_p90=sim_data['mc_p90'],
+                    conservative_mode=False 
+                )
+                db.save_advanced_simulation_result(sim_result)
+                
+                print(f"[DB] Saved intelligent models for {target_symbol}")
                 
                 monitor.log_heartbeat("DailyAnalysis", "success", {"symbol": target_symbol})
                 
