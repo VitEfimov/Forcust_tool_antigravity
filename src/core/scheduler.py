@@ -22,7 +22,10 @@ def run_scheduled_market_overview():
         # 1. Compute Overview (this triggers caching and ensures fresh data if cache expired)
         # Note: We use the Logic function directly or the route helper. 
         # _compute_market_overview is the one that enriches with Advanced Sim.
-        result = _compute_market_overview(TOP_SP500)
+        # 1. Compute Overview (this triggers caching and ensures fresh data if cache expired)
+        # Combine Stocks + Indices for a complete picture
+        targets = TOP_SP500 + settings.TIER_1_INDICES + settings.TIER_2_INDICES
+        result = _compute_market_overview(targets)
         
         # 2. Save to Disk
         save_dir = Path(settings.LOCAL_DATA_DIR) / "market_overviews"

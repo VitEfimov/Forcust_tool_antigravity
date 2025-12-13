@@ -212,6 +212,19 @@ def get_watchlist_overview():
         print(f"Error in watchlist overview: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/market/history")
+def get_market_overview_history(limit: int = 5):
+    """
+    Get historical Daily Market Overviews (10 AM / 4 PM dumps).
+    Returns list of saved market snapshots.
+    """
+    try:
+        from src.core.database import get_db
+        history = get_db().get_market_overview_history(limit=limit)
+        return {"history": history}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/watchlist")
 def get_user_watchlist():
     """Get all symbols in watchlist."""
