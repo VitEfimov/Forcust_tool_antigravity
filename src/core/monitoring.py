@@ -43,10 +43,26 @@ class SystemMonitor:
         if details is None:
             details = {}
             
+        # Ensure timestamp is in US/Eastern
+        try:
+            from zoneinfo import ZoneInfo
+            # Attempt to use IANA key
+            tz = ZoneInfo("America/New_York")
+            now_ts = datetime.now(tz).isoformat()
+        except ImportError:
+            # Fallback for older python or missing tzdata
+            # Manual EST offset (UTC-5) - simplification
+            from datetime import timedelta, timezone
+            est = timezone(timedelta(hours=-5))
+            now_ts = datetime.now(est).isoformat()
+        except Exception:
+             # Universal fallback
+             now_ts = datetime.now().isoformat()
+
         event = {
             "task": task,
             "status": status,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_ts,
             "duration_sec": round(duration_sec, 2),
             "details": details
         }
