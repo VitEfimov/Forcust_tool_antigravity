@@ -18,6 +18,8 @@ from src.features.pipeline import FeaturePipeline
 from src.core.database import get_db, add_to_watchlist, remove_from_watchlist, get_watchlist, get_market_overview_logic
 from src.core.cache import timed_cache
 from src.core.monitoring import monitor
+from src.jobs.daily_run import run_daily_automation
+from fastapi import BackgroundTasks
 
 router = APIRouter()
 
@@ -1024,22 +1026,9 @@ def get_system_heartbeats(limit: int = 50):
     """Get recent task activity (heartbeats)."""
     return {"events": monitor.get_recent_heartbeats(limit)}
 
-@router.get("/system/status")
-def get_system_status():
-    """
-    Get system health status (Database, API, Tasks).
-    """
-    db_status = "offline"
-    try:
-        from src.core.database import get_db
-        # Simple check
-        get_db() 
-        db_status = "online"
-    except:
-        pass
-        
-    return {
-        "api": "online",
-        "database": db_status,
-        "tasks": monitor.get_latest_heartbeats()
-    }
+@router.post("/system/run/daily")
+async def trigger_daily_run(background_tasks: BackgroundTasks):
+    """Manually trigger the daily intelligence briefing."""
+    # Run in background to not block API
+    background_tasks.add_task(run_daily_automation)
+    return {"status": "accepted", "message": "Daily Analysis started in background."}
