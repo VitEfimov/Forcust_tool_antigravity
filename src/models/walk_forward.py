@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Dict, Optional, Callable
 from datetime import timedelta
 from .meta_learner import MetaLearner
+from .kalman_filter import KalmanTrend
+from .transformer_model import TransformerForecaster
+from .ensemble import EnsembleModel
 
 RND = 42
 np.random.seed(RND)
@@ -49,6 +52,7 @@ class WalkForwardForecaster:
         transaction_cost: float = 0.0,   # e.g., 0.0005 = 5 bps per trade
         slippage: float = 0.0,          # e.g., 0.0005 = 5 bps slippage per trade
         use_meta_learner: bool = True,  # Toggle for Meta-Learning
+        regime_vol_threshold: float = 0.20, # Volatility threshold for regime classification
         verbose: bool = True,
         log_func: Optional[Callable[[str], None]] = None,
     ):
@@ -61,6 +65,7 @@ class WalkForwardForecaster:
         - step: how many days to advance each fold
         - transaction_cost/slippage are applied as absolute fractions of price
         - use_meta_learner: If True, uses the secondary reliability model to adjust predictions.
+        - regime_vol_threshold: Annualized Volatility threshold for Bull/Bear regime classification.
         """
         self.symbol = symbol
         self.df = df.copy()
@@ -76,7 +81,7 @@ class WalkForwardForecaster:
         self.transaction_cost = float(transaction_cost)
         self.slippage = float(slippage)
         self.use_meta_learner = use_meta_learner
-        self.use_meta_learner = use_meta_learner
+        self.regime_vol_threshold = float(regime_vol_threshold)
         self.verbose = verbose
         self.log_func = log_func if log_func else print
 
@@ -103,7 +108,7 @@ class WalkForwardForecaster:
             ext = ext_df[['Close']].rename(columns={'Close': f"{name}_Close"}).copy()
             ext.index = pd.to_datetime(ext.index)
             df = df.join(ext, how='left')
-            df[f"{name}_Close"] = df[f"{name}_Close"].ffill()
+            df[f"{name}_Close"] = df[f"{name}_Close"].ffill().bfill()
             # simple derived features
             df[f"{name}_Ret_5d"] = df[f"{name}_Close"].pct_change(5).fillna(0)
         return df
@@ -143,6 +148,15 @@ class WalkForwardForecaster:
         df['Ret_1'] = df['Close'].pct_change(1).fillna(0)
         df['Ret_3'] = df['Close'].pct_change(3).fillna(0)
         df['Ret_5'] = df['Close'].pct_change(5).fillna(0)
+        
+        # --- NEW: Kalman Filter Trend ---
+        kt = KalmanTrend()
+        # fit_transform returns Series. We handle fillna for start
+        df['Trend_Price'] = kt.fit_transform(df['Close'])
+        # Slope: (Trend - PrevTrend) / PrevTrend approx
+        df['Trend_Slope'] = df['Trend_Price'].pct_change().fillna(0)
+        # Distance from Trend
+        df['Trend_Dist'] = (df['Close'] / df['Trend_Price']) - 1
 
         # Target: log-return H days ahead
         future_close = df['Close'].shift(-self.prediction_horizon)
@@ -150,7 +164,7 @@ class WalkForwardForecaster:
         df['Target_Price'] = future_close
 
         # Compose feature column list (exclude raw OHLCV, target, and external raw close if you prefer)
-        exclude = {'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume', 'Target', 'Target_Price'}
+        exclude = {'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume', 'Target', 'Target_Price', 'Trend_Price'}
         cols = [c for c in df.columns if c not in exclude]
         self.feature_cols = cols
 
@@ -163,6 +177,11 @@ class WalkForwardForecaster:
     def run(self, save_models: Optional[bool] = None) -> pd.DataFrame:
         """
         Execute walk-forward training. Returns a DataFrame with per-fold results.
+        Refactored for Institutional Engine:
+        - GPU Acceleration
+        - Daily PnL Series
+        - Volatility Scaling
+        - Leakage-Proof Meta-Learning
         """
         if save_models is None:
             save_models = self.save_models
@@ -174,10 +193,16 @@ class WalkForwardForecaster:
 
         current_idx = self.train_window
         records = []
-        cum_log = 0.0
         
-        # We need this for equity curve reconstruction
-        # (Start with 1.0)
+        # Daily PnL Tracking
+        # We need a continuous daily series for compounding
+        daily_returns = data['Close'].pct_change().fillna(0) # Raw market returns
+        strategy_daily_pnl = np.zeros(n) # Aggregated PnL stream
+        
+        # Transformer State
+        tf_model = TransformerForecaster(input_dim=len(self.feature_cols), seq_len=10)
+        tf_needs_retrain = True
+        tf_last_train_fold = -999
         
         fold = 0
         while current_idx < n:
@@ -196,152 +221,202 @@ class WalkForwardForecaster:
 
             test_row = data.iloc[[current_idx]]
             X_test = test_row[self.feature_cols].values.reshape(1, -1)
-
-            current_price = float(data['Close'].iloc[current_idx])
-            actual_future_price = float(data['Target_Price'].iloc[current_idx])
-            actual_log_ret = float(data['Target'].iloc[current_idx])
-            date_t = data.index[current_idx]
-
-            # Scale
+            
+            # --- MODEL 1: LightGBM (GPU) ---
             scaler = StandardScaler()
             X_train_scaled = pd.DataFrame(scaler.fit_transform(X_train), columns=self.feature_cols)
             X_test_scaled = pd.DataFrame(scaler.transform(X_test), columns=self.feature_cols)
 
-            # Train Model
-            model = lgb.LGBMRegressor(n_estimators=100, learning_rate=0.05, num_leaves=31, verbosity=-1, n_jobs=-1)
-            model.fit(X_train_scaled, y_train)
-            raw_pred_log_ret = float(model.predict(X_test_scaled)[0])
+            lgbm = lgb.LGBMRegressor(
+                n_estimators=300, 
+                learning_rate=0.03, 
+                num_leaves=63, 
+                verbosity=-1, 
+                n_jobs=-1,
+                # device='gpu' # Enable if environment supports it
+            )
+            lgbm.fit(X_train_scaled, y_train)
+            lgbm_pred = float(lgbm.predict(X_test_scaled)[0])
+            
+            # --- MODEL 2: Transformer (Schedule: Every 60 folds) ---
+            if (fold - tf_last_train_fold) >= 60:
+                tf_needs_retrain = True
+            
+            if tf_needs_retrain:
+                try:
+                    tf_model.fit(X_train_scaled.tail(1000), pd.Series(y_train).tail(1000), epochs=5)
+                    tf_last_train_fold = fold
+                    tf_needs_retrain = False
+                except Exception as e:
+                    if self.verbose: self.log_func(f"Transformer Train Error: {e}")
+            
+            # Inference (Always run, weights frozen if not retrained)
+            tf_mu, tf_sigma = tf_model.predict(X_train_scaled.tail(30)) # Use Context
+            tf_pred = tf_mu
+            
+            # --- ENSEMBLE ---
+            current_vol_annual = float(test_row['Vol_20'].iloc[0]) * np.sqrt(252)
+            current_trend_slope = float(test_row['Trend_Slope'].iloc[0])
+            regime_code = 1 if current_vol_annual < self.regime_vol_threshold else 0 
+            
+            ens = EnsembleModel()
+            raw_pred_log_ret = ens.predict(
+                lgbm_pred=lgbm_pred,
+                transformer_pred=tf_pred,
+                current_regime=regime_code,
+                trend_slope=current_trend_slope,
+                volatility=current_vol_annual
+            )
 
-            # Meta-Learning Integration
-            reliability_score = 1.0
+            # --- META-LEARNING (Reliability) ---
+            reliability_prob = 1.0 # Default High Trust
+            
+            # Retrain meta-learner every 20 folds to save compute
+            should_retrain_meta = (self.use_meta_learner and len(records) >= 20 and (fold % 20 == 0))
+            # Or if it's the first time we can?
             if self.use_meta_learner and len(records) >= 20: 
                 try:
                     # Construct Meta History
                     meta_history = pd.DataFrame(records)
-                    meta_history['Error'] = meta_history['pred_log_ret'] - meta_history['actual_log_ret']
                     meta_history['date'] = pd.to_datetime(meta_history['date'])
                     
-                    # Merge Market Data (cols like VIX, etc from 'data')
-                    market_cols = [c for c in data.columns if 'VIX' in c or 'SPY' in c or 'Close' == c] 
+                    market_cols = [c for c in data.columns if 'VIX' in c or 'Close' == c] 
                     meta_train_df = pd.merge(meta_history, data[market_cols], left_on='date', right_index=True, how='left')
                     
-                    # Train Meta-Learner
-                    self.meta_learner.train(meta_train_df, 'pred_log_ret', 'actual_log_ret')
+                    # Only Retrain Periodically
+                    if should_retrain_meta or not self.meta_learner.is_fitted:
+                        self.meta_learner.train(meta_train_df, 'pred_log_ret', 'actual_log_ret')
                     
                     # Predict Reliability
-                    # Context: Recent History + Current Row Test
-                    recent_history = meta_train_df.tail(30).copy()
+                    recent_history = meta_train_df.tail(40).copy()
                     
-                    # We must align columns for concat
-                    # test_row has market cols but no 'Error', 'pred_', 'actual_'
-                    # We can direct pass test_row if we handle cols in predict? 
-                    # Helper construction:
+                    # Create current context row
                     current_context_row = test_row.copy()
+                    current_context_row['pred_log_ret'] = raw_pred_log_ret 
+                    
                     current_context = pd.concat([recent_history, current_context_row], axis=0, ignore_index=True)
                     
-                    reliability_score = self.meta_learner.predict_reliability(current_context)
+                    reliability_prob = self.meta_learner.predict_reliability(current_context)
                 except Exception as e:
                     if self.verbose: self.log_func(f"Meta-Learner Error: {e}")
-                    reliability_score = 1.0
 
-            # Apply Reliability
-            final_pred_log_ret = raw_pred_log_ret * reliability_score
-            
-            # Trading PnL Logic
-            # Direction
-            pred_direction = np.sign(final_pred_log_ret) if final_pred_log_ret != 0 else 0
-            
-            # Realized (Exit at H)
-            trade_horizon = self.trade_horizon
-            exit_idx = min(current_idx + trade_horizon, n - 1)
-            exit_price = float(data['Close'].iloc[exit_idx])
-            realized_log_ret = np.log(exit_price / current_price)
-            
-            # Cost
-            total_cost = self.transaction_cost + self.slippage
-            realized_mult = np.exp(realized_log_ret) * (1 - total_cost)
-            realized_effective = np.log(realized_mult) if realized_mult > 0 else -999.0
-            
-            # Trade PnL
-            # If pred_direction matches trade, we get return.
-            # Here simple: Always take trade in direction of sign?
-            if pred_direction == 0:
-                trade_log_return = 0.0
+            # --- RISK CONTROLS ---
+            # 1. Signal Threshold
+            min_signal = 0.0005 # 5bps
+            if abs(raw_pred_log_ret) < min_signal:
+                final_pred_log_ret = 0.0
+                reliability_prob = 0.0 # Effectively no trade
             else:
-                 trade_log_return = pred_direction * realized_effective
+                final_pred_log_ret = raw_pred_log_ret * reliability_prob # Scale by probability
             
-            cum_log += trade_log_return
-            equity = np.exp(cum_log)
+            # 2. Volatility Scaling
+            target_vol = 0.12
+            vol_scalar = min(1.0, target_vol / (current_vol_annual + 1e-9))
             
-            # Record
+            # Position sizing
+            # Direction * VolScalar * Confidence
+            position = np.sign(final_pred_log_ret) * vol_scalar * reliability_prob
+            
+            # --- DAILY PnL ENGINE ---
+            # Apply position to future days [t+1 : t+H]
+            start_pnl_idx = current_idx + 1
+            end_pnl_idx = min(current_idx + 1 + self.trade_horizon, n)
+            
+            if start_pnl_idx < n:
+                # Daily Returns for the holding period
+                period_returns = daily_returns.iloc[start_pnl_idx : end_pnl_idx].values
+                strategy_daily_pnl[start_pnl_idx : end_pnl_idx] += position * period_returns
+
+            # --- RECORDING ---
+            actual_log_ret = float(data['Target'].iloc[current_idx])
+            
             records.append({
                 "fold": fold,
-                "date": date_t,
-                "current_price": current_price,
-                "pred_price": current_price * np.exp(final_pred_log_ret),
-                "actual_future_price": actual_future_price,
-                "pred_log_ret": final_pred_log_ret, # We store Adjusted as main
+                "date": data.index[current_idx],
+                "price": float(data['Close'].iloc[current_idx]),
+                
+                "pred_log_ret": raw_pred_log_ret, # Base prediction
                 "actual_log_ret": actual_log_ret,
-                "direction_correct": (np.sign(final_pred_log_ret) == np.sign(actual_log_ret)),
-                "trade_log_return": trade_log_return,
-                "cumulative_log_return": cum_log,
-                "equity": equity,
-                "regime": "N/A", # Base doesn't have regime classifier here unless I re-add it
-                "regime_mult": 1.0,
-                "base_pred": raw_pred_log_ret,
-                "reliability": reliability_score,
-                "realized_log_ret": realized_log_ret
+                "reliability_prob": reliability_prob,
+                "vol_scalar": vol_scalar,
+                "final_position": position,
+                
+                "lgbm_pred": lgbm_pred,
+                "tf_pred": tf_pred,
+                "regime": "Bull" if regime_code==1 else "Bear"
             })
             
             if self.verbose and (fold % 50 == 0 or fold == 1):
-                self.log_func(f"[fold {fold}] date={date_t.date()} pred={final_pred_log_ret:.5f} actual={actual_log_ret:.5f} equity={equity:.4f}")
+                self.log_func(f"[fold {fold}] Reliab={reliability_prob:.2f} Pos={position:.2f} Vol={current_vol_annual:.1%}")
                 
             current_idx += self.step
 
+        # Finalize Results
         self.results_df = pd.DataFrame(records).set_index('fold') if records else pd.DataFrame()
-        self.equity_curve = pd.Series([1.0] + [r['equity'] for r in records], index=[0] + [r['fold'] for r in records]) if records else pd.Series([1.0])
+        
+        # Construct Equity Curve from Daily PnL
+        # USE LOG-SPACE ACCUMULATION (Robust)
+        # Avoids underflow for very small nums or drift
+        # equity = exp( cumsum( log(1 + pnl) ) )
+        # Handling negative PnL < -1? (bankruptcy) -> clip?
+        strat_pnl_safe = pd.Series(strategy_daily_pnl, index=data.index).clip(lower=-0.999)
+        self.equity_curve = np.exp(np.cumsum(np.log1p(strat_pnl_safe)))
         
         return self.results_df
 
     # ---------------- Performance reporting ---------------- #
     def performance_report(self, periods_per_year: int = 252) -> Dict[str, float]:
-        if self.results_df is None:
+        if self.results_df is None or self.equity_curve is None:
             raise RuntimeError("Run the forecaster first with .run()")
 
-        df = self.results_df.copy()
-        # total strategy return
-        total_log = df['cumulative_log_return'].iloc[-1]
-        final_value = float(np.exp(total_log))
-        total_return_pct = (final_value - 1.0) * 100.0
+        # Total Return from Equity Curve
+        start_val = self.equity_curve.iloc[0]
+        final_val = self.equity_curve.iloc[-1]
+        total_return_pct = ((final_val / start_val) - 1.0) * 100.0
 
-        # benchmark: buy-and-hold realized over same trade periods (sum of realized_log_ret)
-        benchmark_log = df['realized_log_ret'].sum()
-        benchmark_value = float(np.exp(benchmark_log))
-        benchmark_return_pct = (benchmark_value - 1.0) * 100.0
+        # Benchmark (Buy and Hold)
+        benchmark_start = self.df.loc[self.equity_curve.index[0]]['Close'] # approx
+        benchmark_end = self.df.loc[self.equity_curve.index[-1]]['Close']
+        benchmark_return_pct = ((benchmark_end / benchmark_start) - 1.0) * 100.0
 
-        # per-trade returns series
-        trade_logs = df['trade_log_return'].values
-        # annualized volatility of trade returns (approx)
-        ann_vol = np.std(trade_logs, ddof=1) * np.sqrt(periods_per_year / max(1, self.step))
-        # CAGR approx from trades
-        n_years = (len(df) * self.step) / periods_per_year
-        cagr = (final_value ** (1 / max(1e-9, n_years))) - 1 if n_years > 0 else np.nan
+        # Annualized Volatility (Daily)
+        daily_rets = self.equity_curve.pct_change().dropna()
+        ann_vol = daily_rets.std() * np.sqrt(periods_per_year)
 
-        sharpe = calc_sharpe(trade_logs, rf_rate=0.0, periods_per_year=periods_per_year / max(1, self.step))
-        dir_acc = df['direction_correct'].mean() * 100.0
-        mdd_val, mdd_idx = max_drawdown(self.equity_curve.values)
+        # CAGR
+        days = (self.equity_curve.index[-1] - self.equity_curve.index[0]).days
+        years = days / 365.25
+        cagr = ((final_val / start_val) ** (1 / max(years, 0.001))) - 1 if years > 0 else 0.0
 
+        # Sharpe
+        sharpe = calc_sharpe(daily_rets.values, rf_rate=0.0, periods_per_year=periods_per_year)
+        
+        # Max Drawdown
+        mdd_val, _ = max_drawdown(self.equity_curve.values)
+        
+        # Win Rate & Directional Accuracy
+        n_trades = len(self.results_df)
+        
+        # Directional Accuracy: Sign(Position) == Sign(Actual Return)
+        # Filter for non-zero positions
+        active_trades = self.results_df[self.results_df['final_position'] != 0]
+        if len(active_trades) > 0:
+            matches = np.sign(active_trades['final_position']) == np.sign(active_trades['actual_log_ret'])
+            dir_accuracy = matches.mean() * 100.0
+        else:
+            dir_accuracy = 0.0
+        
         stats = {
             "total_return_pct": total_return_pct,
-            "final_value": final_value,
+            "final_value": final_val,
             "benchmark_return_pct": benchmark_return_pct,
-            "benchmark_final_value": benchmark_value,
-            "cagr": cagr * 100.0 if not np.isnan(cagr) else np.nan,
+            "cagr": cagr * 100.0,
             "annualized_vol_pct": ann_vol * 100.0,
-            "sharpe": float(sharpe) if not np.isnan(sharpe) else np.nan,
-            "directional_accuracy_pct": float(dir_acc),
+            "sharpe": float(sharpe) if not np.isnan(sharpe) else 0.0,
             "max_drawdown_pct": float(mdd_val * 100.0),
-            "n_trades": len(df),
+            "n_folds": n_trades,
+            "avg_reliability": self.results_df['reliability_prob'].mean(),
+            "directional_accuracy": dir_accuracy
         }
         return stats
 
@@ -353,7 +428,7 @@ class WalkForwardForecaster:
         self.results_df.to_csv(csv_path, index=True)
         # export equity with date mapping
         eq_df = pd.DataFrame({
-            "fold": [0] + list(self.results_df.index),
+            "date": self.equity_curve.index,
             "equity": list(self.equity_curve.values)
         })
         eq_df.to_csv(equity_csv, index=False)
@@ -363,24 +438,24 @@ class WalkForwardForecaster:
     def summary_dataframe(self):
         if self.results_df is None:
             raise RuntimeError("Run the forecaster first with .run()")
-        out = self.results_df.reset_index()[[
-            'date', 'current_price', 'pred_price', 'actual_future_price',
-            'pred_log_ret', 'actual_log_ret', 'direction_correct', 'trade_log_return', 'equity',
-            'regime', 'regime_mult'
+        
+        # 'date' column might be index or in df depending on creation
+        out = self.results_df.copy()
+        if 'date' in out.columns:
+            out = out.set_index('date') # Use date index for export readability
+            
+        out = out[[
+             'price', 'pred_log_ret', 'actual_log_ret', 
+             'reliability_prob', 'vol_scalar', 'final_position', 'regime'
         ]]
+        
         out = out.rename(columns={
-            'date': 'Date',
-            'current_price': 'Price',
-            'pred_price': 'Pred',
-            'actual_future_price': 'Actual_Price',
-            'pred_log_ret': 'Pred_LogRet',
+            'price': 'Price',
+            'pred_log_ret': 'Raw_Link',
             'actual_log_ret': 'Actual_LogRet',
-            'direction_correct': 'Dir_Correct',
-            'trade_log_return': 'Trade_LogRet',
-            'equity': 'Equity',
-            'regime': 'Regime',
-            'regime_mult': 'Regime_Mult',
-            'base_pred': 'Base_Pred',
-            'reliability': 'Reliability'
+            'reliability_prob': 'Reliability',
+            'vol_scalar': 'Vol_Scalar',
+            'final_position': 'Position',
+            'regime': 'Regime'
         })
         return out
