@@ -67,6 +67,17 @@ const ModelStatus = () => {
                     <div style={{ background: '#111', padding: '0.5rem 1rem', borderRadius: '4px', border: `1px solid ${getStatusColor(status?.database)}` }}>
                         DB: {status?.database?.toUpperCase()}
                     </div>
+                    <button
+                        onClick={async () => {
+                            if (confirm("Start Daily Analysis? This forces a full run.")) {
+                                try { await axios.post(`${API_URL}/system/run/daily`); alert("Started!"); }
+                                catch (e) { alert("Error: " + e.message); }
+                            }
+                        }}
+                        style={{ background: '#00d4ff', border: 'none', borderRadius: '4px', padding: '0.5rem 1rem', cursor: 'pointer', fontWeight: 'bold' }}
+                    >
+                        ▶ Run Intelligence Briefing
+                    </button>
                     <div style={{ background: '#111', padding: '0.5rem 1rem', borderRadius: '4px', color: '#888' }}>
                         Last Updated: {new Date().toLocaleTimeString()}
                     </div>

@@ -41,14 +41,46 @@ def run_scheduled_market_overview():
         print(f"[SCHEDULER] Saved Market Overview to {filepath}")
         
         # 3. Save to DB (Full Data per User Request)
+        saved_id = "N/A"
         try:
             from src.core.database import get_db
+            # This returns None currently, but we can assume success if no error
             get_db().save_market_overview(result)
             print(f"[SCHEDULER] Saved Market Overview to Database.")
+            saved_id = "Mongo/SQLite"
         except Exception as e:
             print(f"[SCHEDULER] Failed to save to DB: {e}")
 
-        monitor.log_heartbeat("MarketOverview", "success", {"files_saved": 1, "db_saved": True})
+        # 4. Calculate Summary Metrics for Heartbeat
+        overview = result.get("overview", [])
+        avg_change = 0.0
+        bullish = 0
+        bearish = 0
+        vix = "N/A"
+        
+        if overview:
+            changes = [x.get('change_pct', 0) for x in overview if isinstance(x.get('change_pct'), (int, float))]
+            if changes:
+                avg_change = sum(changes) / len(changes)
+                bullish = sum(1 for c in changes if c > 0)
+                bearish = sum(1 for c in changes if c < 0)
+            
+            # Find VIX
+            vix_item = next((x for x in overview if x.get('symbol') == '^VIX'), None)
+            if vix_item:
+                vix = vix_item.get('price')
+
+        details = {
+            "files_saved": 1,
+            "db_saved": True,
+            "items_processed": len(overview),
+            "market_breadth": f"{bullish} Up / {bearish} Down",
+            "avg_change": f"{avg_change:+.2f}%",
+            "vix": vix,
+            "timestamp": datetime.now().strftime("%H:%M:%S")
+        }
+
+        monitor.log_heartbeat("MarketOverview", "success", details)
         
     except Exception as e:
         print(f"[SCHEDULER] Error in scheduled task: {e}")
