@@ -11,21 +11,19 @@ const ModelStatus = () => {
     const [expandedTask, setExpandedTask] = useState(null);
 
     useEffect(() => {
-        const fetchData = async () => {
+        const fetchStatus = async () => {
             try {
                 // Timeout: 120s (2 mins) for server wakeup
                 const config = { timeout: 120000 };
 
-                const [statusRes, heartbeatsRes, logsRes] = await Promise.all([
+                // Fetch Status & Heartbeats
+                const [statusRes, heartbeatsRes] = await Promise.all([
                     axios.get(`${API_URL}/system/status`, config),
-                    axios.get(`${API_URL}/system/heartbeats?limit=50`, config),
-                    axios.get(`${API_URL}/system/logs`, config)
+                    axios.get(`${API_URL}/system/heartbeats?limit=50`, config)
                 ]);
 
                 // Merge status summary with full events list
-                // We use heartbeatsRes.data.events for the table
                 setStatus({ ...statusRes.data, tasks: heartbeatsRes.data.events });
-                setLogs(logsRes.data);
             } catch (err) {
                 console.error("Failed to fetch system status", err);
                 setStatus({ error: "Failed to connect to backend (Timeout or Error)." });
@@ -34,10 +32,28 @@ const ModelStatus = () => {
             }
         };
 
-        fetchData();
-        const interval = setInterval(fetchData, 30000); // 30s Poll
+        fetchStatus();
+        const interval = setInterval(fetchStatus, 30000); // 30s Poll for Status
         return () => clearInterval(interval);
     }, []);
+
+    // Separate Effect for Logs (Only fetch when expanded)
+    useEffect(() => {
+        if (!logs.expanded) return;
+
+        const fetchLogs = async () => {
+            try {
+                const res = await axios.get(`${API_URL}/system/logs`);
+                setLogs(prev => ({ ...prev, ...res.data })); // Merge content, keep expanded true
+            } catch (e) {
+                setLogs(prev => ({ ...prev, content: "Error loading logs." }));
+            }
+        };
+
+        fetchLogs();
+        const interval = setInterval(fetchLogs, 60000); // 60s Poll for Logs (slower)
+        return () => clearInterval(interval);
+    }, [logs.expanded]);
 
     const getStatusColor = (state) => {
         if (!state) return '#ffff88';
