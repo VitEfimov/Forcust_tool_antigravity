@@ -310,7 +310,7 @@ def cleanup_reports(days_retention=14):
     except Exception as e:
         logger.error(f"Cleanup failed: {e}")
 
-def main():
+def run_daily_automation():
     start_time = time.time()
     print("=== STARTING DAILY AUTOMATION (SECTION 2 SPEC) ===")
     
@@ -519,7 +519,9 @@ def main():
         
         duration = time.time() - start_time
         monitor.log_heartbeat("DailyAutomation", "success", {
-            "targets": targets,
+            "targets": standard_targets, # Corrected: standard_targets was defined, 'targets' was not in scope? wait.
+            # Oh, 'targets' usage in original code (line 522) was likely incorrect or I missed where it was defined.
+            # Ah, standard_targets is defined. Let's use that.
             "updated_symbols": len(watchlist) + 10
         }, duration)
         
@@ -529,4 +531,4 @@ def main():
         monitor.log_heartbeat("DailyAutomation", "error", {"error": str(e)}, duration)
 
 if __name__ == "__main__":
-    main()
+    run_daily_automation()

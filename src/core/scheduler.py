@@ -6,7 +6,7 @@ import json
 from src.core.config import settings
 from src.core.monitoring import monitor
 from src.api.routes import _compute_market_overview, TOP_SP500
-from src.jobs.daily_run import main as run_daily_automation
+from src.jobs.daily_run import run_daily_automation
 from src.jobs.weekly_train import main as run_weekly_training
 
 scheduler = BackgroundScheduler()
