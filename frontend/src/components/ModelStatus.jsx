@@ -10,49 +10,64 @@ const ModelStatus = () => {
     const [loading, setLoading] = useState(true);
     const [expandedTask, setExpandedTask] = useState(null);
 
+    // 1. Initial Log Load on Expand
     useEffect(() => {
-        const fetchStatus = async () => {
-            try {
-                // Timeout: 120s (2 mins) for server wakeup
-                const config = { timeout: 120000 };
+        if (logs.expanded) {
+            axios.get(`${API_URL}/system/logs`)
+                .then(res => setLogs(p => ({ ...p, ...res.data })))
+                .catch(() => setLogs(p => ({ ...p, content: "Error loading logs." })));
+        }
+    }, [logs.expanded]);
 
-                // Fetch Status & Heartbeats
+    // 2. Adaptive Polling Loop
+    useEffect(() => {
+        let isMounted = true;
+        let timer = null;
+
+        const loop = async () => {
+            if (!isMounted) return;
+
+            let isRunning = false;
+            try {
+                const config = { timeout: 120000 };
+                // Fetch Status
                 const [statusRes, heartbeatsRes] = await Promise.all([
                     axios.get(`${API_URL}/system/status`, config),
                     axios.get(`${API_URL}/system/heartbeats?limit=50`, config)
                 ]);
 
-                // Merge status summary with full events list
-                setStatus({ ...statusRes.data, tasks: heartbeatsRes.data.events });
+                const events = heartbeatsRes.data.events || [];
+                setStatus({ ...statusRes.data, tasks: events });
+
+                // Check active state
+                isRunning = events.some(t => t.status?.toLowerCase().includes('running'));
+
+                // Conditional Log Polling
+                // ONLY fetch logs in the loop if we are ACTIVELY running a simulation.
+                // Otherwise, the static fetch above is sufficient.
+                if (logs.expanded && isRunning) {
+                    try {
+                        const logRes = await axios.get(`${API_URL}/system/logs`);
+                        setLogs(prev => ({ ...prev, ...logRes.data }));
+                    } catch (e) { /* ignore */ }
+                }
+
             } catch (err) {
-                console.error("Failed to fetch system status", err);
-                setStatus({ error: "Failed to connect to backend (Timeout or Error)." });
-            } finally {
-                setLoading(false);
+                console.error("Poll failed", err);
+                setStatus(prev => ({ ...prev, error: "Connection lost." }));
             }
+
+            // Adaptive Interval
+            const delay = isRunning ? 5000 : 60000;
+            if (isMounted) timer = setTimeout(loop, delay);
         };
 
-        fetchStatus();
-        const interval = setInterval(fetchStatus, 30000); // 30s Poll for Status
-        return () => clearInterval(interval);
-    }, []);
+        loop();
 
-    // Separate Effect for Logs (Only fetch when expanded)
-    useEffect(() => {
-        if (!logs.expanded) return;
-
-        const fetchLogs = async () => {
-            try {
-                const res = await axios.get(`${API_URL}/system/logs`);
-                setLogs(prev => ({ ...prev, ...res.data })); // Merge content, keep expanded true
-            } catch (e) {
-                setLogs(prev => ({ ...prev, content: "Error loading logs." }));
-            }
+        return () => {
+            isMounted = false;
+            if (timer) clearTimeout(timer);
         };
-
-        fetchLogs();
-        const interval = setInterval(fetchLogs, 60000); // 60s Poll for Logs (slower)
-        return () => clearInterval(interval);
     }, [logs.expanded]);
 
     const getStatusColor = (state) => {
