@@ -322,6 +322,7 @@ def run_daily_automation():
         
         # Step 1: Update Data (Fetches All: Macros, Watchlist, Megacap)
         loader = step_1_update_data(watchlist)
+        monitor.log_heartbeat("DailyAutomation", "running", {"step": "data_update_complete", "details": "Market data fetched"})
         
         # Define Configurations based on User Request
         # 1. SPY Special Configurations
@@ -360,9 +361,18 @@ def run_daily_automation():
         # Track processed symbols to avoid duplicate Simulations per run if multiple configs exist
         processed_sim_symbols = set()
 
-        for config in ANALYSIS_CONFIGS:
+        total_configs = len(ANALYSIS_CONFIGS)
+        for i, config in enumerate(ANALYSIS_CONFIGS):
             target_symbol = config['symbol']
             horizon = config['horizon']
+            
+            # Progress Heartbeat
+            monitor.log_heartbeat("DailyAutomation", "running", {
+                "step": "analyzing_symbol", 
+                "symbol": target_symbol, 
+                "progress": f"{i+1}/{total_configs}",
+                "horizon": horizon
+            })
             
             print(f"--- Analyzing {target_symbol} (H={horizon}) ---")
             try:
@@ -450,6 +460,11 @@ def run_daily_automation():
                 
             except Exception as e:
                 logger.error(f"Analysis failed for {target_symbol}: {e}")
+                monitor.log_heartbeat("DailyAutomation", "warning", {
+                    "step": "symbol_failed", 
+                    "symbol": target_symbol, 
+                    "error": str(e)
+                })
         
         # Combine Reports
         full_report = "\n\n".join(final_reports)
