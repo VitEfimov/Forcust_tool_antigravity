@@ -17,6 +17,7 @@ class SystemMonitor:
     def __init__(self):
         self.log_file = HEARTBEAT_FILE
         self.mongo_collection = None
+        self.start_time = datetime.now()
         
         # Initialize MongoDB if configured
         if settings.DATABASE_URL and "mongodb" in settings.DATABASE_URL:
@@ -132,11 +133,6 @@ class SystemMonitor:
         """
         Retrieve a flat list of the most recent heartbeat events across all tasks.
         """
-        # 1. MongoDB
-        if self.mongo_collection is not None:
-            try:
-                events = list(self.mongo_collection.find({}, {"_id": 0}).sort("timestamp", -1).limit(limit))
-                return events
             except Exception as e:
                 print(f"[MONITOR] Mongo read failed: {e}")
         
@@ -155,6 +151,34 @@ class SystemMonitor:
             except Exception: pass
             
         return events
+
+    def check_stale_tasks(self):
+        """
+        Scan for tasks stuck in 'running' state from previous sessions.
+        Called on system startup.
+        """
+        try:
+            latest = self.get_latest_heartbeats()
+            for task, event in latest.items():
+                if event.get("status") == "running":
+                    # Parse timestamp
+                    try:
+                        ts_str = event.get("timestamp")
+                        # Handle various formats or ISO
+                        ts = datetime.fromisoformat(ts_str)
+                        
+                        # Compare: If timestamp is clearly older than our start_time
+                        # (Allow a small buffer or just check if it was engaged before NOW)
+                        # Actually simple logic: ANY task 'running' when we just booted up is likely stale/interrupted.
+                        # Because we claim to be "SystemStartup".
+                        
+                        self.log_heartbeat(task, "interrupted", {"reason": "System Restart Detected"})
+                        print(f"[MONITOR] Marked stale task '{task}' as INTERRUPTED.")
+                        
+                    except Exception as e:
+                        print(f"[MONITOR] Failed to check stale task {task}: {e}")
+        except Exception as e:
+            print(f"[MONITOR] Error checking stale tasks: {e}")
 
 # Global Instance
 monitor = SystemMonitor()

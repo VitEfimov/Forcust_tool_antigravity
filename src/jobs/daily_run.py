@@ -18,6 +18,7 @@ from src.models.walk_forward import WalkForwardForecaster
 from src.models.advanced_simulation import AdvancedSimulator
 from src.core.database import get_watchlist
 from src.core.monitoring import monitor
+from src.core.control import task_controller
 import time
 
 # Logging
@@ -317,6 +318,11 @@ def run_daily_automation():
     try:
         monitor.log_heartbeat("DailyAutomation", "running", {"step": "start"})
         
+        # 0. Check for Stop Signal
+        if task_controller.should_stop("DailyAutomation", consume=True):
+             monitor.log_heartbeat("DailyAutomation", "cancelled", {"reason": "User requested stop"})
+             return
+
         # 1. Watchlist
         watchlist = get_watchlist()
         
@@ -374,6 +380,11 @@ def run_daily_automation():
                 "horizon": horizon
             })
             
+            # Check Stop Signal
+            if task_controller.should_stop("DailyAutomation", consume=True):
+                 monitor.log_heartbeat("DailyAutomation", "cancelled", {"reason": "User requested stop", "progress": f"{i}/{total_configs}"})
+                 return
+
             print(f"--- Analyzing {target_symbol} (H={horizon}) ---")
             try:
                 # 0. Update Actuals (only need to do once per symbol/horizon tuple really)

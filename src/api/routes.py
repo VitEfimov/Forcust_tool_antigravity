@@ -1032,3 +1032,16 @@ async def trigger_daily_run(background_tasks: BackgroundTasks):
     # Run in background to not block API
     background_tasks.add_task(run_daily_automation)
     return {"status": "accepted", "message": "Daily Analysis started in background."}
+
+@router.post("/system/control/stop/{task_name}")
+def stop_task(task_name: str):
+    """
+    Request a task to stop gracefully.
+    Sets a flag file that the task checks.
+    """
+    try:
+        from src.core.control import task_controller
+        task_controller.request_stop(task_name)
+        return {"status": "accepted", "message": f"Stop signal sent for {task_name}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

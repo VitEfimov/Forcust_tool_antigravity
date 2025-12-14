@@ -10,6 +10,8 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     from src.core.monitoring import monitor
     monitor.log_heartbeat("SystemStartup", "success", {"message": "API started"})
+    # 2. Cleanup Stale Tasks (from previous crashes/redeployments)
+    monitor.check_stale_tasks()
     yield
     # Shutdown
     stop_scheduler()

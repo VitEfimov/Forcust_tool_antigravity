@@ -110,15 +110,38 @@ const ModelStatus = () => {
                                     <tr key={i}>
                                         <td style={{ fontWeight: 'bold' }}>{task.task || task.name}</td>
                                         <td>
-                                            <span style={{
-                                                color: getStatusColor(task.status),
-                                                background: `${getStatusColor(task.status)}22`,
-                                                padding: '2px 8px',
-                                                borderRadius: '4px',
-                                                fontSize: '0.85rem'
-                                            }}>
-                                                {task.status?.toUpperCase()}
-                                            </span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <span style={{
+                                                    color: getStatusColor(task.status),
+                                                    background: `${getStatusColor(task.status)}22`,
+                                                    padding: '2px 8px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '0.85rem'
+                                                }}>
+                                                    {task.status?.toUpperCase()}
+                                                </span>
+                                                {task.status?.toLowerCase() === 'running' && (
+                                                    <button
+                                                        onClick={async () => {
+                                                            if (confirm(`Stop task ${task.task}?`)) {
+                                                                try {
+                                                                    await axios.post(`${API_URL}/system/control/stop/${task.task}`);
+                                                                    alert("Stop signal sent.");
+                                                                } catch (e) {
+                                                                    alert("Error: " + e.message);
+                                                                }
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            background: '#ff4444', color: 'white', border: 'none',
+                                                            borderRadius: '4px', padding: '2px 6px',
+                                                            cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold'
+                                                        }}
+                                                    >
+                                                        ■ STOP
+                                                    </button>
+                                                )}
+                                            </div>
                                         </td>
                                         <td>{new Date(task.timestamp).toLocaleString()}</td>
                                         <td>{task.duration_sec ? `${task.duration_sec}s` : '-'}</td>
