@@ -38,14 +38,16 @@ const ModelStatus = () => {
                 ]);
 
                 const events = heartbeatsRes.data.events || [];
-                setStatus({ ...statusRes.data, tasks: events });
 
-                // Log connection success once? Or purely rely on heartbeat?
-                // Let's rely on the user seeing the table. But we could push ONE log if empty.
-                // Actually, let's just use it for errors or major state changes.
+                // FIX: Separate Latest State (for Banner) from History (for Table)
+                // The status endpoint returns tasks as a dict {TaskName: {...details}}
+                const latestMap = statusRes.data.tasks || {};
+                const activeTasks = Object.values(latestMap); // Convert map to array for banner use
 
-                // Check active state
-                isRunning = events.some(t => t.status?.toLowerCase().includes('running'));
+                setStatus({ ...statusRes.data, tasks: events, activeTasks: activeTasks });
+
+                // Check active state using the LATEST map, not history
+                isRunning = activeTasks.some(t => t.status?.toLowerCase().includes('running'));
 
                 // Conditional Log Polling
                 // ONLY fetch logs in the loop if we are ACTIVELY running a simulation.
@@ -83,13 +85,15 @@ const ModelStatus = () => {
         if (s === 'online' || s === 'connected' || s === 'success') return '#44ff44';
         if (s.includes('running')) return '#00d4ff'; // Blue for running
         if (s === 'error' || s.includes('error') || s.includes('fail')) return '#ff4444';
-        return '#ffff88';
+        return 'orange'; // Changed for Interrupted/Unknown
     };
 
     if (loading) return <div className="dashboard"><h2>Loading Mission Control...</h2></div>;
 
-    // status.tasks is now an array from /system/heartbeats
+    // History List (Recent Heartbeats)
     const tasks = Array.isArray(status?.tasks) ? status.tasks : [];
+    // Active List (Current State)
+    const activeTasks = Array.isArray(status?.activeTasks) ? status.activeTasks : [];
 
     return (
         <div className="dashboard">
@@ -98,6 +102,9 @@ const ModelStatus = () => {
                 <p style={{ color: '#888' }}>
                     Heartbeat Monitoring • Autonomic Task tracking • Intelligence Reports
                 </p>
+                <div style={{ background: '#332b00', color: '#ffcc00', padding: '0.5rem', borderRadius: '4px', fontSize: '0.8rem', marginTop: '0.5rem', display: 'inline-block' }}>
+                    ⚠️ <strong>CLOUD DEPLOYMENT NOTE:</strong> Please keep this tab OPEN while automation is running to prevent server sleep (Free Tier).
+                </div>
                 <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
                     <div style={{ background: '#111', padding: '0.5rem 1rem', borderRadius: '4px', border: `1px solid ${getStatusColor(status?.api)}` }}>
                         API: {status?.api?.toUpperCase()}
@@ -124,17 +131,17 @@ const ModelStatus = () => {
 
             <div className="content">
 
-                {/* 1. Task Health Table */}
+                {/* 1. Task Health Table (HISTORY LOG) */}
                 <div className="card" style={{ marginBottom: '2rem', padding: '0' }}>
                     <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #333' }}>
-                        <h3 style={{ margin: 0 }}>Autonomic Task Heartbeats (Recent 50)</h3>
+                        <h3 style={{ margin: 0 }}>Autonomic Task Heartbeats (Historical Log - Recent 50)</h3>
                     </div>
                     <div className="table-container">
                         <table className="indices-table">
                             <thead>
                                 <tr>
                                     <th>Task Name</th>
-                                    <th>Status</th>
+                                    <th>Status (At Time of Log)</th>
                                     <th>Time</th>
                                     <th>Duration</th>
                                     <th>Metrics / Details</th>
@@ -158,27 +165,6 @@ const ModelStatus = () => {
                                                 }}>
                                                     {task.status?.toUpperCase()}
                                                 </span>
-                                                {task.status?.toLowerCase() === 'running' && (
-                                                    <button
-                                                        onClick={async () => {
-                                                            if (confirm(`Stop task ${task.task}?`)) {
-                                                                try {
-                                                                    await axios.post(`${API_URL}/system/control/stop/${task.task}`);
-                                                                    alert("Stop signal sent.");
-                                                                } catch (e) {
-                                                                    alert("Error: " + e.message);
-                                                                }
-                                                            }
-                                                        }}
-                                                        style={{
-                                                            background: '#ff4444', color: 'white', border: 'none',
-                                                            borderRadius: '4px', padding: '2px 6px',
-                                                            cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold'
-                                                        }}
-                                                    >
-                                                        ■ STOP
-                                                    </button>
-                                                )}
                                             </div>
                                         </td>
                                         <td>{new Date(task.timestamp).toLocaleString()}</td>
@@ -204,8 +190,8 @@ const ModelStatus = () => {
                     </div>
                 </div>
 
-                {/* 1.5 Active Task Banner (Progress Visualization) */}
-                {tasks.filter(t => t.status?.toLowerCase().includes('running')).map((t, i) => (
+                {/* 1.5 Active Task Banner (Progress Visualization - CURRENT ONLY) */}
+                {activeTasks.filter(t => t.status?.toLowerCase().includes('running')).map((t, i) => (
                     <div key={i} style={{
                         background: 'linear-gradient(90deg, #004466, #002233)',
                         border: '1px solid #00d4ff',
