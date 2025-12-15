@@ -64,3 +64,7 @@ class DataLoader:
                 f.write(traceback.format_exc())
             print(f"Error fetching data for {symbol}: {e}")
             return pd.DataFrame()
+
+    def save_data(self, symbol: str, df: pd.DataFrame):
+        """Manually save data to cache."""
+        self.cache.save(symbol, df)

@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useLog } from '../context/LogContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -39,6 +40,10 @@ const ModelStatus = () => {
                 const events = heartbeatsRes.data.events || [];
                 setStatus({ ...statusRes.data, tasks: events });
 
+                // Log connection success once? Or purely rely on heartbeat?
+                // Let's rely on the user seeing the table. But we could push ONE log if empty.
+                // Actually, let's just use it for errors or major state changes.
+
                 // Check active state
                 isRunning = events.some(t => t.status?.toLowerCase().includes('running'));
 
@@ -55,6 +60,8 @@ const ModelStatus = () => {
             } catch (err) {
                 console.error("Poll failed", err);
                 setStatus(prev => ({ ...prev, error: "Connection lost." }));
+            } finally {
+                setLoading(false);
             }
 
             // Adaptive Interval
@@ -196,6 +203,41 @@ const ModelStatus = () => {
                         </table>
                     </div>
                 </div>
+
+                {/* 1.5 Active Task Banner (Progress Visualization) */}
+                {tasks.filter(t => t.status?.toLowerCase().includes('running')).map((t, i) => (
+                    <div key={i} style={{
+                        background: 'linear-gradient(90deg, #004466, #002233)',
+                        border: '1px solid #00d4ff',
+                        padding: '1rem',
+                        borderRadius: '8px',
+                        marginBottom: '2rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        boxShadow: '0 0 15px rgba(0, 212, 255, 0.2)'
+                    }}>
+                        <div>
+                            <h3 style={{ margin: 0, color: '#00d4ff', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <span className="animate-spin">⚙️</span>
+                                {t.task} In Progress...
+                            </h3>
+                            {t.details?.step && (
+                                <div style={{ marginTop: '0.5rem', color: '#ccc', fontSize: '0.9rem' }}>
+                                    <strong>Step:</strong> {t.details.step.replace(/_/g, ' ').toUpperCase()}
+                                    {t.details.symbol && <span> | Target: <span style={{ color: 'white', fontWeight: 'bold' }}>{t.details.symbol}</span></span>}
+                                    {t.details.horizon && <span> (H={t.details.horizon})</span>}
+                                </div>
+                            )}
+                        </div>
+                        {t.details?.progress && (
+                            <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'white' }}>{t.details.progress}</div>
+                                <div style={{ fontSize: '0.8rem', color: '#888' }}>COMPLETED</div>
+                            </div>
+                        )}
+                    </div>
+                ))}
 
                 {/* 2. Logs Viewer */}
                 <div style={{ background: '#1e1e1e', padding: '1rem', borderRadius: '12px', border: '1px solid #333' }}>

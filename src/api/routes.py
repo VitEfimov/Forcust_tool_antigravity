@@ -674,7 +674,14 @@ def check_busy():
                 # Check staleness (if > 10 mins old, assume stale/crashed and allow)
                 try:
                     last_ts = datetime.fromisoformat(ts_str)
-                    if (datetime.now() - last_ts).total_seconds() < 600: # 10 mins lock
+                    now = datetime.now()
+                    # Strip TZ to ensure naive comparison (robust)
+                    if last_ts.tzinfo is not None:
+                        last_ts = last_ts.replace(tzinfo=None)
+                    if now.tzinfo is not None:
+                        now = now.replace(tzinfo=None)
+                        
+                    if (now - last_ts).total_seconds() < 600: # 10 mins lock
                         raise HTTPException(status_code=423, detail=f"System is busy with {t}. Please wait.")
                 except ValueError: pass
 
