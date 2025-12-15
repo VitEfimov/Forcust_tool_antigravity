@@ -102,9 +102,12 @@ const ModelStatus = () => {
                 <p style={{ color: '#888' }}>
                     Heartbeat Monitoring • Autonomic Task tracking • Intelligence Reports
                 </p>
-                <div style={{ background: '#332b00', color: '#ffcc00', padding: '0.5rem', borderRadius: '4px', fontSize: '0.8rem', marginTop: '0.5rem', display: 'inline-block' }}>
-                    ⚠️ <strong>CLOUD DEPLOYMENT NOTE:</strong> Please keep this tab OPEN while automation is running to prevent server sleep (Free Tier).
-                </div>
+                {/* Only show Cloud Warning if remotely deployed */}
+                {!['localhost', '127.0.0.1'].includes(window.location.hostname) && (
+                    <div style={{ background: '#332b00', color: '#ffcc00', padding: '0.5rem', borderRadius: '4px', fontSize: '0.8rem', marginTop: '0.5rem', display: 'inline-block' }}>
+                        ⚠️ <strong>CLOUD DEPLOYMENT NOTE:</strong> Please keep this tab OPEN while automation is running to prevent server sleep (Free Tier).
+                    </div>
+                )}
                 <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
                     <div style={{ background: '#111', padding: '0.5rem 1rem', borderRadius: '4px', border: `1px solid ${getStatusColor(status?.api)}` }}>
                         API: {status?.api?.toUpperCase()}

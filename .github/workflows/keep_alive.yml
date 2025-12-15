@@ -1,0 +1,23 @@
+name: Keep Alive Ping
+
+on:
+  schedule:
+    # Run every 10 minutes
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render App
+        run: |
+          # Replace with your actual Render URL or set it in GitHub Secrets
+          # Example: curl -I https://your-app-name.onrender.com/system/status
+          
+          if [ -z "${{ secrets.RENDER_APP_URL }}" ]; then
+            echo "URL not set. Please set RENDER_APP_URL secret in GitHub or edit this file."
+          else
+            echo "Pinging ${{ secrets.RENDER_APP_URL }}..."
+            curl -s -o /dev/null -w "%{http_code}" ${{ secrets.RENDER_APP_URL }}/system/status
+          fi

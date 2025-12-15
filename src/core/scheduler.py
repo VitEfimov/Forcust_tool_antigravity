@@ -89,10 +89,10 @@ def run_scheduled_market_overview():
 def start_scheduler():
     """Start the background scheduler."""
     
-    # 1. Daily Automation (08:00 UTC)
+    # 1. Daily Automation (Moves to Market Close - 16:00)
     scheduler.add_job(
         run_daily_automation,
-        CronTrigger(hour=8, minute=0),
+        CronTrigger(hour=16, minute=0),
         id="daily_automation",
         replace_existing=True
     )
@@ -105,7 +105,7 @@ def start_scheduler():
         replace_existing=True
     )
 
-    # 3. Market Overview (10:00 AM)
+    # 3. Market Overview (10:00 AM - Open Snapshot)
     scheduler.add_job(
         run_scheduled_market_overview,
         CronTrigger(hour=10, minute=0),
@@ -113,13 +113,8 @@ def start_scheduler():
         replace_existing=True
     )
     
-    # 4. Market Overview (4:00 PM)
-    scheduler.add_job(
-        run_scheduled_market_overview,
-        CronTrigger(hour=16, minute=0),
-        id="overview_4pm",
-        replace_existing=True
-    )
+    # Note: overview_4pm is removed as DailyAutomation now covers the 16:00 slot
+    # and performs a full analysis including data updates.
     
     scheduler.start()
     print("[SCHEDULER] Background scheduler started (Daily/Weekly/Intraday).")
