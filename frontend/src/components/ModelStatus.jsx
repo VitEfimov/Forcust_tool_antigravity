@@ -100,14 +100,14 @@ const ModelStatus = () => {
                     </div>
                     <button
                         onClick={async () => {
-                            if (confirm("Start Daily Analysis? This forces a full run.")) {
+                            if (confirm("Start Daily Analysis? This runs ALL simulations (Training + Walk-Forward + V2).")) {
                                 try { await axios.post(`${API_URL}/system/run/daily`); alert("Started!"); }
                                 catch (e) { alert("Error: " + e.message); }
                             }
                         }}
                         style={{ background: '#00d4ff', border: 'none', borderRadius: '4px', padding: '0.5rem 1rem', cursor: 'pointer', fontWeight: 'bold' }}
                     >
-                        ▶ Run Intelligence Briefing
+                        ▶ Run All Simulations
                     </button>
                     <div style={{ background: '#111', padding: '0.5rem 1rem', borderRadius: '4px', color: '#888' }}>
                         Last Updated: {new Date().toLocaleTimeString()}

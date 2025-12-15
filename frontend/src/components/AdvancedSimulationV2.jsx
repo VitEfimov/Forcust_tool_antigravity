@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import API_URL from '../config';
+import { useSystemStatus } from '../hooks/useSystemStatus';
 
 const AdvancedSimulationV2 = () => {
+    const { isBusy, runningTask } = useSystemStatus();
     const [symbol, setSymbol] = useState('SPY'); // Default to Market (SPY)
     const [conservative, setConservative] = useState(true); // Default to Conservative (Thinner tails)
     const [engine, setEngine] = useState('ensemble'); // Default to Ensemble Professional
@@ -104,21 +106,22 @@ const AdvancedSimulationV2 = () => {
                         </div>
                         <button
                             type="submit"
-                            disabled={loading}
+                            disabled={loading || isBusy}
                             style={{
                                 padding: '0.7rem 2rem',
-                                background: loading ? '#555' : 'linear-gradient(135deg, #00d4ff, #0099cc)',
+                                background: (loading || isBusy) ? '#555' : 'linear-gradient(135deg, #00d4ff, #0099cc)',
                                 border: 'none',
                                 borderRadius: '6px',
-                                cursor: loading ? 'not-allowed' : 'pointer',
+                                cursor: (loading || isBusy) ? 'not-allowed' : 'pointer',
                                 fontWeight: 'bold',
-                                color: 'white',
+                                color: (loading || isBusy) ? '#aaa' : 'white',
                                 fontSize: '1rem',
                                 width: '100%'
                             }}
                         >
-                            {loading ? 'Simulating...' : 'Run V2 Simulation'}
+                            {loading ? 'Simulating...' : isBusy ? `System Busy (${runningTask})` : 'Run V2 Simulation'}
                         </button>
+                        {isBusy && <p style={{ color: '#ff6666', fontSize: '0.85rem', marginTop: '0.5rem', textAlign: 'center' }}>⚠️ Wait for {runningTask} to finish.</p>}
                         {data && (
                             <button
                                 type="button"

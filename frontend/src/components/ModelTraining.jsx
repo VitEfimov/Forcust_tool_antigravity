@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import API_URL from '../config';
+import { useSystemStatus } from '../hooks/useSystemStatus';
 
 const ModelTraining = () => {
+    const { isBusy, runningTask } = useSystemStatus();
     const [symbol, setSymbol] = useState('SPY');
     const [indices, setIndices] = useState([]);
     const [selectedIndices, setSelectedIndices] = useState(['^VIX']); // Default VIX
@@ -115,18 +117,21 @@ const ModelTraining = () => {
                             </div>
                         </div>
 
-                        <button type="submit" disabled={loading} style={{
-                            padding: '0.8rem 2rem',
-                            background: '#4CAF50',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '1rem',
-                            fontWeight: 'bold'
-                        }}>
-                            {loading ? 'Training Models...' : 'Train Model'}
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                            <button type="submit" disabled={loading || isBusy} style={{
+                                padding: '0.8rem 2rem',
+                                background: (loading || isBusy) ? '#555' : '#4CAF50',
+                                color: (loading || isBusy) ? '#aaa' : 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: (loading || isBusy) ? 'not-allowed' : 'pointer',
+                                fontSize: '1rem',
+                                fontWeight: 'bold'
+                            }}>
+                                {loading ? 'Training Models...' : isBusy ? `System Busy (${runningTask})` : 'Train Model'}
+                            </button>
+                            {isBusy && <span style={{ color: '#ff6666', fontSize: '0.9rem' }}>⚠️ Wait for {runningTask} to finish.</span>}
+                        </div>
                     </form>
                 </div>
 

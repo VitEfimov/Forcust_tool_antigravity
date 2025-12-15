@@ -647,6 +647,7 @@ def _compute_advanced_simulation(symbol: str, conservative: bool, engine: str = 
             "interpretation": f"Expected: {median_chg:+.1f}% | Range: [{downside:.1f}%, +{upside:.1f}%] | {risk_label}"
         }
 
+
     return {
         "symbol": symbol,
         "method": method_label,
@@ -661,8 +662,24 @@ def _compute_advanced_simulation(symbol: str, conservative: bool, engine: str = 
         "paths_sample": sim_res['paths'][:50, ::10].tolist()
     }
 
+def check_busy():
+    """Dependency: Check if any heavy task is running."""
+    hb = monitor.get_latest_heartbeats()
+    heavy_tasks = ["DailyAutomation", "WeeklyTraining", "MLTraining", "WalkForward", "AdvancedSimulation"]
+    for t in heavy_tasks:
+        if t in hb:
+            status = hb[t].get("status", "").lower()
+            ts_str = hb[t].get("timestamp", "")
+            if "running" in status:
+                # Check staleness (if > 10 mins old, assume stale/crashed and allow)
+                try:
+                    last_ts = datetime.fromisoformat(ts_str)
+                    if (datetime.now() - last_ts).total_seconds() < 600: # 10 mins lock
+                        raise HTTPException(status_code=423, detail=f"System is busy with {t}. Please wait.")
+                except ValueError: pass
+
 @router.get("/simulation/v2/{symbol}")
-def get_advanced_simulation_v2(symbol: str, conservative: bool = False, engine: str = 'legacy'):
+def get_advanced_simulation_v2(symbol: str, conservative: bool = False, engine: str = 'legacy', _=Depends(check_busy)):
     """
     V2: Advanced Realistic Simulation with full regime-aware Monte Carlo.
     - HMM regime detection + Markov transitions
@@ -747,12 +764,13 @@ class TrainRequest(BaseModel):
     horizons: List[int] = [10, 30, 100, 365]
 
 @router.post("/models/train")
-def train_model_endpoint(req: TrainRequest):
+def train_model_endpoint(req: TrainRequest, _=Depends(check_busy)):
     """
     Train ML models for a symbol using selected indices as features.
     """
     try:
         symbol = req.symbol.upper().strip()
+        monitor.log_heartbeat("MLTraining", "running", {"step": "start", "symbol": symbol, "indices": len(req.indices)})
         loader = DataLoader(settings.DATA_CACHE_DIR)
         
         # 1. Fetch Target Stock Data
@@ -783,6 +801,7 @@ def train_model_endpoint(req: TrainRequest):
         
         for h in req.horizons:
             print(f"Training {symbol} horizon {h}d...")
+            monitor.log_heartbeat("MLTraining", "running", {"step": "training_horizon", "symbol": symbol, "horizon": h})
             try:
                 X, y, feats = pipeline.get_training_data(df, external_data=external_data, horizon=h)
                 
@@ -794,20 +813,22 @@ def train_model_endpoint(req: TrainRequest):
                 model = ForecastModel()
                 # Assuming train returns a dict of metrics
                 metrics = model.train(X, y)
-                
                 # Save
                 registry.save_forecast_model(symbol, model, h)
                 results[f"{h}d"] = {"status": "trained", "metrics": metrics}
             except Exception as e:
                 print(f"Error training horizon {h}: {e}")
+                monitor.log_heartbeat("MLTraining", "warning", {"step": "horizon_failed", "horizon": h, "error": str(e)})
                 results[f"{h}d"] = {"status": "error", "detail": str(e)}
             
+        monitor.log_heartbeat("MLTraining", "success", {"step": "complete", "symbol": symbol, "results": list(results.keys())})
         return {"symbol": symbol, "indices_used": list(external_data.keys()), "results": results}
         
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+                
 
 class WalkForwardRequest(BaseModel):
     symbol: str
@@ -823,7 +844,7 @@ def _sanitize_val(v):
     return v
 
 @router.post("/models/walk_forward")
-def walk_forward_endpoint(req: WalkForwardRequest):
+def walk_forward_endpoint(req: WalkForwardRequest, _=Depends(check_busy)):
     """
     Run a Walk-Forward Validation pipeline.
     """
@@ -1027,7 +1048,7 @@ def get_system_heartbeats(limit: int = 50):
     return {"events": monitor.get_recent_heartbeats(limit)}
 
 @router.post("/system/run/daily")
-async def trigger_daily_run(background_tasks: BackgroundTasks):
+async def trigger_daily_run(background_tasks: BackgroundTasks, _=Depends(check_busy)):
     """Manually trigger the daily intelligence briefing."""
     # Run in background to not block API
     background_tasks.add_task(run_daily_automation)

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import API_URL from '../config';
+import { useSystemStatus } from '../hooks/useSystemStatus';
 import { useLog } from '../context/LogContext';
 import {
     LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
@@ -8,6 +9,7 @@ import {
 } from 'recharts';
 
 const WalkForward = () => {
+    const { isBusy, runningTask } = useSystemStatus();
     const { addLog } = useLog();
     const [config, setConfig] = useState({
         symbol: 'SPY',
@@ -182,11 +184,12 @@ const WalkForward = () => {
 
                             <button
                                 onClick={runPipeline}
-                                disabled={loading}
-                                className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded font-bold transition-colors disabled:opacity-50 mt-4"
+                                disabled={loading || isBusy}
+                                className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded font-bold transition-colors disabled:opacity-50 mt-4 disabled:cursor-not-allowed"
                             >
-                                {loading ? 'Running Pipeline...' : 'Run Simulation'}
+                                {loading ? 'Running Pipeline...' : isBusy ? `Busy (${runningTask})` : 'Run Simulation'}
                             </button>
+                            {isBusy && <p className="text-red-400 text-xs text-center mt-2">Locked by active process.</p>}
                         </div>
                     </div>
 
