@@ -140,8 +140,18 @@ def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, u
     try:
         from src.models.walk_forward import WalkForwardForecaster
     except ImportError:
-        logger.warning(f"  Skipping Step 2.2: WalkForwardForecaster dependencies (e.g. lightgbm) not found.")
-        return None
+        logger.info(f"  Lightweight Mode: Skipping ML for {symbol} (dependencies missing).")
+        # Return basic data so the pipeline continues
+        df = loader.get_data(symbol)
+        if df.empty: return None
+        price = df['Close'].iloc[-1]
+        return {
+            "dates": datetime.now(),
+            "ml_forecast_price": None, # Signal missing
+            "reliability_score": 0.5,
+            "regime": "Unknown",
+            "current_price": price
+        }
         
     logger.info(f"Step 2.2: Walk-Forward for {symbol} (H={horizon}, W={train_window})")
     
@@ -213,7 +223,9 @@ def step_4_simulation(symbol, loader, current_price):
         try:
             method = 'garch'
             # Quick check if arch imported
+            # Quick check if arch imported
             import arch
+            import scipy # Also Check Scipy
         except:
             method = 'simple'
             
@@ -247,22 +259,40 @@ def generate_report_content(symbol, market_data, wf_data, sim_data):
     Generate Plain-Language Summary (Section 2.5).
     """
     price = wf_data['current_price']
-    ml_target = wf_data['ml_forecast_price']
-    mc_target = sim_data['mc_p50']
-    rel_score = wf_data['reliability_score']
+    ml_target = wf_data.get('ml_forecast_price')
+    mc_target = sim_data.get('mc_p50')
+    rel_score = wf_data.get('reliability_score', 0.5)
     
     # Calculations
-    ml_upside = (ml_target - price) / price * 100
-    mc_upside = (mc_target - price) / price * 100
+    if ml_target:
+        ml_upside = (ml_target - price) / price * 100
+        ml_upside_str = f"{ml_upside:+.2f}%"
+        ml_target_str = f"{ml_target:.2f}"
+    else:
+        ml_upside = 0
+        ml_upside_str = "N/A"
+        ml_target_str = "N/A (Cloud Only)"
+
+    if mc_target:
+        mc_upside = (mc_target - price) / price * 100
+        mc_upside_str = f"{mc_upside:+.2f}%"
+        mc_target_str = f"{mc_target:.2f}"
+    else:
+        mc_upside = 0
+        mc_upside_str = "N/A"
+        mc_target_str = "N/A"
     
     # Agreement
-    agreement = "DIVERGENCE"
-    if ml_upside > 0 and mc_upside > 0:
-        agreement = "STRONG BUY (Confluence)"
-    elif ml_upside < 0 and mc_upside < 0:
-        agreement = "STRONG SELL (Confluence)"
-    elif abs(ml_upside - mc_upside) < 2.0:
-        agreement = "NEUTRAL / CONSENSUS"
+    agreement = "WAITING FOR CLOUD WORKER"
+    if ml_target and mc_target:
+        if ml_upside > 0 and mc_upside > 0:
+            agreement = "STRONG BUY (Confluence)"
+        elif ml_upside < 0 and mc_upside < 0:
+            agreement = "STRONG SELL (Confluence)"
+        elif abs(ml_upside - mc_upside) < 2.0:
+            agreement = "NEUTRAL / CONSENSUS"
+        else:
+            agreement = "DIVERGENCE"
         
     # Final Forecast (Meta-Learning Logic 2.3)
     # final_forecast = (base_forecast_return * reliability) ... roughly
@@ -279,13 +309,13 @@ ASSET: {symbol}
 PRICE: {price:.2f}
 
 1. MARKET REGIME
-   - Classification: {wf_data['regime'].upper()}
+   - Classification: {wf_data.get('regime', 'Unknown').upper()}
    - Volatility State: {"HIGH" if rel_score < 0.5 else "NORMAL"}
    - VIX Level: (See Dashboard)
 
 2. FORECASTS (30-Day Horizon)
-   - ML Model Target: {ml_target:.2f} ({ml_upside:+.2f}%)
-   - Monte-Carlo Target: {mc_target:.2f} ({mc_upside:+.2f}%)
+   - ML Model Target: {ml_target_str} ({ml_upside_str})
+   - Monte-Carlo Target: {mc_target_str} ({mc_upside_str})
    - Agreement Level: {agreement}
 
 3. META-LEARNER (Reliability Layer)
@@ -293,8 +323,8 @@ PRICE: {price:.2f}
    - Adjusted Prediction: {effective_ml_return:+.2f}% Upside
 
 4. STRATEGY OUTLOOK
-   The system detects a {wf_data['regime']} environment.
-   Machine Learning suggests a {ml_upside:+.1f}% move, while statistical simulations suggest {mc_upside:+.1f}%.
+   The system detects a {wf_data.get('regime', 'Unknown')} environment.
+   Machine Learning suggests a {ml_upside_str} move, while statistical simulations suggest {mc_upside_str}.
    
    Final Verdict: {agreement}
    Confidence: {"HIGH" if rel_score > 0.7 else "LOW - CAUTION"}
