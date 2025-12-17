@@ -493,6 +493,69 @@ def get_watchlist():
     return get_db().get_watchlist()
 
 def get_market_overview_logic(symbols: list) -> dict:
+    """
+    Optimized market overview using yfinance batch download.
+    Returns current price, daily change, and basic info for each symbol.
+    """
+    import yfinance as yf
+    import os
+    
+    # 1. Fix Cache Issue
+    try:
+        yf.set_tz_cache_location("/tmp/yf_cache")
+    except:
+        pass 
+
+    from datetime import datetime
+    
+    if not symbols:
+        return {"overview": []}
+    
+    overview = []
+    
+    try:
+        # Optimized: Single Threaded for Low Memory
+        print(f"[MARKET OVERVIEW] Fetching {len(symbols)} symbols in batch (Low Memory Mode)...")
+        
+        data = yf.download(
+            symbols, 
+            period="5d", 
+            group_by='ticker', 
+            threads=False,   
+            progress=False
+        )
+        
+        for symbol in symbols:
+            try:
+                if len(symbols) == 1:
+                    df = data
+                else:
+                    df = data[symbol] if symbol in data.columns.get_level_values(0) else None
+                
+                if df is None or df.empty:
+                    continue
+                    
+                # Safe access
+                close = df['Close'].dropna()
+                if len(close) < 1: continue
+
+                last_price = float(close.iloc[-1])
+                prev_price = float(close.iloc[-2]) if len(close) > 1 else last_price
+                change_pct = ((last_price - prev_price) / prev_price) * 100 if prev_price else 0
+                
+                overview.append({
+                    "symbol": symbol,
+                    "price": round(last_price, 2),
+                    "change_pct": round(change_pct, 2),
+                    "signal": "bullish" if change_pct > 0.5 else "bearish" if change_pct < -0.5 else "neutral"
+                })
+            except Exception as e:
+                continue
+        
+        print(f"[MARKET OVERVIEW] Successfully fetched {len(overview)} symbols")
+        
+    except Exception as e:
+        print(f"[MARKET OVERVIEW] Batch download error: {e}")
         return {"overview": [], "error": str(e)}
     
     return {"overview": overview}
