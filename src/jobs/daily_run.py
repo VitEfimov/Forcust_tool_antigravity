@@ -65,7 +65,7 @@ def generate_megacap_index(loader):
 
     # 2. Compute Equal-Weighted Index
     # Forward fill missing data
-    prices_df = prices_df.fillna(method='ffill').dropna()
+    prices_df = prices_df.ffill().dropna()
     
     # Normalize to start at 100
     normalized = prices_df / prices_df.iloc[0] * 100
@@ -137,7 +137,12 @@ def step_1_update_data(watchlist):
 
 def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, use_meta=True):
     """Run Walk-Forward Pipeline (Rolling Training)."""
-    from src.models.walk_forward import WalkForwardForecaster
+    try:
+        from src.models.walk_forward import WalkForwardForecaster
+    except ImportError:
+        logger.warning(f"  Skipping Step 2.2: WalkForwardForecaster dependencies (e.g. lightgbm) not found.")
+        return None
+        
     logger.info(f"Step 2.2: Walk-Forward for {symbol} (H={horizon}, W={train_window})")
     
     # Context Data
