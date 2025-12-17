@@ -14,8 +14,8 @@ sys.path.append(str(project_root))
 
 from src.core.config import settings
 from src.data.loader import DataLoader
-from src.models.walk_forward import WalkForwardForecaster
-from src.models.advanced_simulation import AdvancedSimulator
+# Lazy Import: WalkForwardForecaster (LightGBM)
+# Lazy Import: AdvancedSimulator (Torch)
 from src.core.database import get_watchlist
 from src.core.monitoring import monitor
 from src.core.control import task_controller
@@ -137,6 +137,7 @@ def step_1_update_data(watchlist):
 
 def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, use_meta=True):
     """Run Walk-Forward Pipeline (Rolling Training)."""
+    from src.models.walk_forward import WalkForwardForecaster
     logger.info(f"Step 2.2: Walk-Forward for {symbol} (H={horizon}, W={train_window})")
     
     # Context Data
@@ -190,6 +191,7 @@ def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, u
 
 def step_4_simulation(symbol, loader, current_price):
     """Run Fast Monte-Carlo (Advanced Simulation)."""
+    from src.models.advanced_simulation import AdvancedSimulator
     logger.info(f"Step 2.4: Advanced Simulation for {symbol}")
     
     try:
