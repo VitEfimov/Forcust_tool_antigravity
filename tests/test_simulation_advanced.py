@@ -11,17 +11,19 @@ def test_fit_regime_params_fallback():
     returns = pd.Series(np.random.normal(0, 0.01, 30))
     regimes = np.zeros(30, dtype=int)
     
-    params = sim.fit_regime_params(returns, regimes)
-    assert 0 in params
-    assert params[0]['method'] == 'simple'
-    assert 'std' in params[0]
-    assert 'long_term_vol' in params[0]
+    # Mock arch_model to fail (trigger full fallback to simple)
+    with patch('src.models.advanced_simulation.arch_model', side_effect=Exception("Mock fail")):
+        params = sim.fit_regime_params(returns, regimes)
+        assert 0 in params
+        assert params[0]['method'] == 'simple'
+        assert 'std' in params[0]
+        assert 'long_term_vol' in params[0]
 
-    # Test n_regimes filling
-    params_fill = sim.fit_regime_params(returns, regimes, n_regimes=2)
-    assert 0 in params_fill
-    assert 1 in params_fill
-    assert params_fill[1]['method'] == 'simple'
+        # Test n_regimes filling
+        params_fill = sim.fit_regime_params(returns, regimes, n_regimes=2)
+        assert 0 in params_fill
+        assert 1 in params_fill
+        assert params_fill[1]['method'] == 'simple'
 
 def test_fit_regime_params_garch():
     """Test GARCH fitting with sufficient data."""
@@ -37,9 +39,10 @@ def test_fit_regime_params_garch():
     # We'll just define a mock that raises exception to trigger fallback or successful returns
     with patch('src.models.advanced_simulation.arch_model') as mock_arch:
         mock_res = MagicMock()
-        mock_res.params = {'omega': 0.01, 'alpha[1]': 0.1, 'beta[1]': 0.8, 'nu': 5}
+        mock_res.params = pd.Series({'omega': 0.01, 'alpha[1]': 0.1, 'beta[1]': 0.8, 'nu': 5})
         mock_res.conditional_volatility = pd.Series([1.0]*200) # dummy
         mock_res.resid = pd.Series([0.1]*200) # Add resid
+        mock_res.convergence_flag = 0 # Explicitly set success
         
         mock_model = MagicMock()
         mock_model.fit.return_value = mock_res

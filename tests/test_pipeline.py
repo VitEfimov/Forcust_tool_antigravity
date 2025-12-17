@@ -22,13 +22,13 @@ def test_indicators():
     assert 'Log_Return' in df_processed.columns
 
 def test_pipeline_training_data():
-    dates = pd.date_range(start='2023-01-01', periods=100)
+    dates = pd.date_range(start='2023-01-01', periods=300)
     df = pd.DataFrame({
-        'Open': np.random.rand(100) * 100,
-        'High': np.random.rand(100) * 100,
-        'Low': np.random.rand(100) * 100,
-        'Close': np.random.rand(100) * 100,
-        'Volume': np.random.randint(1000, 10000, 100)
+        'Open': np.random.rand(300) * 100,
+        'High': np.random.rand(300) * 100,
+        'Low': np.random.rand(300) * 100,
+        'Close': np.random.rand(300) * 100,
+        'Volume': np.random.randint(1000, 10000, 300)
     }, index=dates)
     
     pipeline = FeaturePipeline()
