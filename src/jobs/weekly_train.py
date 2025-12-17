@@ -7,8 +7,16 @@ import numpy as np
 import logging
 from pathlib import Path
 import random
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import mean_squared_error
+
+import sys
+import os
+from datetime import datetime, timedelta
+import pandas as pd
+import numpy as np
+import logging
+from pathlib import Path
+import random
+# sklearn imports moved to functions
 
 # Fix path
 project_root = Path(__file__).resolve().parent.parent.parent
@@ -16,15 +24,18 @@ sys.path.append(str(project_root))
 
 from src.core.config import settings
 from src.data.loader import DataLoader
-from src.models.registry import ModelRegistry
-from src.features.pipeline import FeaturePipeline
-from src.models.lightgbm_forecaster import ForecastModel
-from src.models.hmm import RegimeDetector
-from src.models.transformer_model import TransformerForecaster
-from src.models.meta_learner import MetaLearner
 from src.core.database import get_watchlist
 from src.core.monitoring import monitor
 import time
+
+# Lazy load models to avoid import errors in API mode
+# from src.models.registry import ModelRegistry
+# from src.features.pipeline import FeaturePipeline
+# from src.models.lightgbm_forecaster import ForecastModel
+# from src.models.hmm import RegimeDetector
+# from src.models.transformer_model import TransformerForecaster
+# from src.models.meta_learner import MetaLearner
+
 
 # Configuration
 HORIZONS = [10, 30, 100, 365]
@@ -54,8 +65,12 @@ def prepare_training_data(df, horizon):
     X = X.select_dtypes(include=[np.number])
     return X, y
 
+
 def tune_lightgbm(X, y):
     """Randomized Search for LightGBM parameters."""
+    from sklearn.model_selection import TimeSeriesSplit
+    from src.models.lightgbm_forecaster import ForecastModel
+    
     param_grid = {
         'num_leaves': [20, 31, 50, 70],
         'learning_rate': [0.01, 0.05, 0.1],
@@ -100,6 +115,7 @@ def tune_lightgbm(X, y):
 
 def train_regime_classifier(symbol, df, registry):
     """Train HMM Regime Classifier."""
+    from src.models.hmm import RegimeDetector
     logger.info(f"  Training Regime Classifier (HMM) for {symbol}...")
     try:
         returns = df['Close'].pct_change().dropna()
@@ -116,6 +132,7 @@ def train_regime_classifier(symbol, df, registry):
 
 def train_sequence_model(symbol, df_feats, registry):
     """Train Transformer (Sequence)."""
+    from src.models.transformer_model import TransformerForecaster
     logger.info(f"  Training Transformer (Sequence) for {symbol}...")
     try:
         # Target: Next Day Return (Simple 1-step forecast for seq model)
@@ -139,6 +156,10 @@ def train_sequence_model(symbol, df_feats, registry):
 
 def train_for_symbol(symbol: str):
     logger.info(f"Starting FULL Weekly Training for {symbol}...")
+    from src.models.registry import ModelRegistry
+    from src.features.pipeline import FeaturePipeline
+    from src.models.lightgbm_forecaster import ForecastModel
+    
     loader = DataLoader(settings.DATA_CACHE_DIR)
     registry = ModelRegistry()
     pipeline = FeaturePipeline()
@@ -199,6 +220,7 @@ def train_for_symbol(symbol: str):
         
 def retrain_meta_learner():
     logger.info("Retraining Meta-Learner...")
+    from src.models.meta_learner import MetaLearner
     meta = MetaLearner()
     # In a real scenario, fetch all past errors from DB.
     # Here, we save a refreshed instance.
