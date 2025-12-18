@@ -680,7 +680,11 @@ def _compute_advanced_simulation(symbol: str, conservative: bool, engine: str = 
 
 def check_busy():
     """Dependency: Check if any heavy task is running."""
-    hb = monitor.get_latest_heartbeats()
+    try:
+        hb = monitor.get_latest_heartbeats()
+    except Exception as e:
+        print(f"Monitor error: {e}")
+        hb = {}
     heavy_tasks = ["DailyAutomation", "WeeklyTraining", "MLTraining", "WalkForward", "AdvancedSimulation"]
     for t in heavy_tasks:
         if t in hb:
@@ -690,16 +694,24 @@ def check_busy():
                 # Check staleness (if > 10 mins old, assume stale/crashed and allow)
                 try:
                     last_ts = datetime.fromisoformat(ts_str)
-                    now = datetime.now()
-                    # Strip TZ to ensure naive comparison (robust)
-                    if last_ts.tzinfo is not None:
-                        last_ts = last_ts.replace(tzinfo=None)
-                    if now.tzinfo is not None:
-                        now = now.replace(tzinfo=None)
+                    from datetime import timezone
+                    now = datetime.now(timezone.utc)
+                    
+                    # Ensure both are timezone-aware or both naive (prefer aware UTC)
+                    if last_ts.tzinfo is None:
+                        # Assume it was UTC if missing (backward compat) or make aware
+                        last_ts = last_ts.replace(tzinfo=timezone.utc)
+                    
+                    # Convert to UTC if not already
+                    last_ts = last_ts.astimezone(timezone.utc)
                         
-                    if (now - last_ts).total_seconds() < 300: # 5 mins lock
-                        raise HTTPException(status_code=423, detail=f"System is busy with {t}. Please wait.")
-                except ValueError: pass
+                    delta = (now - last_ts).total_seconds()
+                    
+                    if delta < 600: # 10 mins lock (increased from 5 to be safe for long tasks)
+                        raise HTTPException(status_code=423, detail=f"System is busy with {t} (started {int(delta)}s ago). Please wait.")
+                except ValueError: 
+                    pass
+
 
 @router.get("/simulation/v2/{symbol}")
 def get_advanced_simulation_v2(symbol: str, conservative: bool = False, engine: str = 'legacy', _=Depends(check_busy)):
