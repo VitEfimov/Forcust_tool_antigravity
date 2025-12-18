@@ -16,7 +16,6 @@ class Database:
         if self.is_mongo:
             import pymongo
             self.client = pymongo.MongoClient(self.db_url)
-            self.client = pymongo.MongoClient(self.db_url)
             try:
                 self.db = self.client.get_default_database()
             except Exception:
@@ -77,6 +76,15 @@ class Database:
             CREATE TABLE IF NOT EXISTS watchlist (
                 symbol TEXT PRIMARY KEY,
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        # Full Market Overviews Table (Fix for 500 Error)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS full_market_overviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TIMESTAMP,
+                date TEXT,
+                json_data TEXT
             )
         ''')
         conn.commit()
@@ -469,6 +477,52 @@ class Database:
             ''', (timestamp, date_str, json.dumps(overview_data)))
             conn.commit()
             conn.close()
+
+    def get_market_overview_history(self, limit: int = 5) -> List[Dict]:
+        """
+        Get historical market overviews.
+        """
+        if self.is_mongo:
+            cursor = self.db.market_overviews.find().sort("timestamp", -1).limit(limit)
+            results = []
+            for doc in cursor:
+                doc["_id"] = str(doc["_id"])
+                results.append(doc)
+            return results
+        elif self.is_excel:
+             # Not supported in Excel mode currently
+            return []
+        else:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            try:
+                c.execute('''
+                    SELECT * FROM full_market_overviews 
+                    ORDER BY timestamp DESC 
+                    LIMIT ?
+                ''', (limit,))
+                rows = c.fetchall()
+                
+                results = []
+                import json
+                for row in rows:
+                    d = dict(row)
+                    if d.get("json_data"):
+                        d["data"] = json.loads(d["json_data"])
+                        # Clean up raw json string from response if needed, but keeping it is fine.
+                        # Actually standardizing to match Mongo structure:
+                        # Mongo: {timestamp, date, type, data: {...}}
+                        # Sqlite: {timestamp, date, json_data} -> convert to {timestamp, date, data}
+                    results.append(d)
+                return results
+            except sqlite3.OperationalError:
+                # Table might not exist yet if save_market_overview hasn't run
+                return []
+            except Exception:
+                return []
+            finally:
+                 conn.close()
 
 # =============================================================================
 # Helper Functions (module-level exports)

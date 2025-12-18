@@ -681,7 +681,7 @@ def check_busy():
                     if now.tzinfo is not None:
                         now = now.replace(tzinfo=None)
                         
-                    if (now - last_ts).total_seconds() < 600: # 10 mins lock
+                    if (now - last_ts).total_seconds() < 300: # 5 mins lock
                         raise HTTPException(status_code=423, detail=f"System is busy with {t}. Please wait.")
                 except ValueError: pass
 

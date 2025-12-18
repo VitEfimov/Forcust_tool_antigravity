@@ -206,7 +206,12 @@ def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, u
 
 def step_4_simulation(symbol, loader, current_price):
     """Run Fast Monte-Carlo (Advanced Simulation)."""
-    from src.models.advanced_simulation import AdvancedSimulator
+    try:
+        from src.models.advanced_simulation import AdvancedSimulator
+    except ImportError:
+        logger.info(f"  Lightweight Mode: Skipping Simulation for {symbol} (dependencies missing).")
+        return {"mc_p50": current_price}
+
     logger.info(f"Step 2.4: Advanced Simulation for {symbol}")
     
     try:
