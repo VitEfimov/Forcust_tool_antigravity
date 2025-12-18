@@ -23,6 +23,22 @@ from fastapi import BackgroundTasks
 
 router = APIRouter()
 
+@router.post("/system/unlock")
+def force_unlock_system(request: Request):
+    """
+    Emergency: Force clear all 'running' task locks.
+    Use this if the system reports 'Busy' but nothing is running.
+    """
+    try:
+        count = monitor.force_clear_locks()
+        return {
+            "status": "success", 
+            "message": f"Unlocked system. Cleared {count} stale locks.",
+            "cleared_count": count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Top 20 S&P 500 Stocks by market cap (for faster loading)
 # Top 50 S&P 500 Stocks by market cap (approximate selection)
 TOP_SP500 = [

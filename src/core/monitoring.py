@@ -185,5 +185,32 @@ class SystemMonitor:
         except Exception as e:
             print(f"[MONITOR] Error checking stale tasks: {e}")
 
+    def force_clear_locks(self):
+        """
+        Manually force-clear any running locks. 
+        Useful if the system gets stuck in 'Busy' state.
+        """
+        heavy_tasks = ["DailyAutomation", "WeeklyTraining", "MLTraining", "WalkForward", "AdvancedSimulation"]
+        cleared_count = 0
+        
+        try:
+            # Check latest status first to avoid spamming
+            latest = self.get_latest_heartbeats()
+            
+            for task in heavy_tasks:
+                # If explicit Running, OR if it's not present but we want to be safe?
+                # Mainly clear "running" ones.
+                evt = latest.get(task, {})
+                if evt.get("status") == "running":
+                    self.log_heartbeat(task, "interrupted", {"reason": "Manual Unlock Triggered"})
+                    print(f"[MONITOR] Force-unlocked task: {task}")
+                    cleared_count += 1
+                    
+            return cleaned_count if 'cleaned_count' in locals() else cleared_count
+            
+        except Exception as e:
+            print(f"[MONITOR] Error force clearing locks: {e}")
+            return 0
+            
 # Global Instance
 monitor = SystemMonitor()
