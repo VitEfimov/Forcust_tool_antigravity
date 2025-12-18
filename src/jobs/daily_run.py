@@ -147,7 +147,7 @@ def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, u
         price = df['Close'].iloc[-1]
         return {
             "dates": datetime.now(),
-            "ml_forecast_price": None, # Signal missing
+            "ml_forecast_price": price, # Fallback to current price (Neutral)
             "reliability_score": 0.5,
             "regime": "Unknown",
             "current_price": price
@@ -184,13 +184,13 @@ def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, u
     results = wf.run()
     
     # Extract latest state
-    latest_pred = 0.0
+    latest_pred = df['Close'].iloc[-1] # Default to current price if empty
     reliability = 0.5
     regime_label = "Unknown"
     
     if not results.empty:
         last_row = results.iloc[-1]
-        latest_pred = last_row.get('pred_price', 0.0)
+        latest_pred = last_row.get('pred_price', latest_pred)
         reliability = last_row.get('reliability', 1.0) # From Meta-Learner
         # We might need to persist 'regime' in results if possible, or re-derive
         # For now, let's assume 'Regime' column exists or we re-calc
@@ -210,7 +210,11 @@ def step_4_simulation(symbol, loader, current_price):
         from src.models.advanced_simulation import AdvancedSimulator
     except ImportError:
         logger.info(f"  Lightweight Mode: Skipping Simulation for {symbol} (dependencies missing).")
-        return {"mc_p50": current_price}
+        return {
+            "mc_p10": current_price,
+            "mc_p50": current_price,
+            "mc_p90": current_price
+        }
 
     logger.info(f"Step 2.4: Advanced Simulation for {symbol}")
     
