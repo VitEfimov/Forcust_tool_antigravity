@@ -78,6 +78,8 @@ class Database:
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # Full Market Overviews Table (Fix for 500 Error)
+        c.execute('''
             CREATE TABLE IF NOT EXISTS full_market_overviews (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TIMESTAMP,
