@@ -78,13 +78,36 @@ class Database:
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        # Full Market Overviews Table (Fix for 500 Error)
-        c.execute('''
             CREATE TABLE IF NOT EXISTS full_market_overviews (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TIMESTAMP,
                 date TEXT,
                 json_data TEXT
+            )
+        ''')
+        # Advanced Simulation Results Table
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS advanced_simulation_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT,
+                symbol TEXT,
+                mc_p10 REAL,
+                mc_p50 REAL,
+                mc_p90 REAL,
+                conservative_mode BOOLEAN,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        # Walk Forward Results Table
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS walk_forward_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT,
+                symbol TEXT,
+                prediction_price REAL,
+                reliability_score REAL,
+                regime_label TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         conn.commit()
@@ -523,6 +546,55 @@ class Database:
                 return []
             finally:
                  conn.close()
+
+    
+    def save_advanced_simulation_result(self, result):
+        """
+        Save AdvancedSimulationResult pydantic model.
+        """
+        data = result.model_dump() # Pydantic v2
+        
+        if self.is_mongo:
+            self.db.advanced_simulation_results.insert_one(data)
+        elif self.is_excel:
+            # Skip for excel to keep it simple or implement append
+            pass
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO advanced_simulation_results (date, symbol, mc_p10, mc_p50, mc_p90, conservative_mode)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                data['date'], data['symbol'], 
+                data['mc_p10'], data['mc_p50'], data['mc_p90'], 
+                data['conservative_mode']
+            ))
+            conn.commit()
+            conn.close()
+            
+    def save_walk_forward_result(self, result):
+        """
+        Save WalkForwardResult pydantic model.
+        """
+        data = result.model_dump()
+        
+        if self.is_mongo:
+            self.db.walk_forward_results.insert_one(data)
+        elif self.is_excel:
+            pass
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO walk_forward_results (date, symbol, prediction_price, reliability_score, regime_label)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+                data['date'], data['symbol'], 
+                data['prediction_price'], data['reliability_score'], data['regime_label']
+            ))
+            conn.commit()
+            conn.close()
 
 # =============================================================================
 # Helper Functions (module-level exports)
