@@ -385,7 +385,8 @@ def run_daily_automation():
             # SPY Walk-Forward 2
             {"symbol": "SPY", "horizon": 100, "train_window": 1000, "step": 30, "meta": True},
             # SPY Walk-Forward 3 (Optimization: step=5 to save memory/compute)
-            {"symbol": "SPY", "horizon": 200, "train_window": 2000, "step": 5, "meta": True},
+            # Optimization: Reduced window from 2000 to 1000 for 512MB RAM limit
+            {"symbol": "SPY", "horizon": 200, "train_window": 1000, "step": 5, "meta": True},
         ]
         
         # 2. V2 Simulation Targets (Default Daily Config: Horizon 10)

@@ -3,14 +3,14 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent
 
 
-log_file = project_root / "server_optimized_2.log"
+log_file = project_root / "server_aggressive.log"
 
 print(f"Reading {log_file}...")
 try:
     # Try utf-16 first (PowerShell default)
     with open(log_file, "r", encoding="utf-16", errors="ignore") as f:
         lines = f.readlines()
-        print("\n".join(lines[-20:]))
+        print("\n".join(lines[-100:]))
 except Exception as e:
     print(f"Failed utf-16, trying utf-8: {e}")
     try:

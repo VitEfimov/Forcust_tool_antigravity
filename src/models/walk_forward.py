@@ -10,7 +10,7 @@ from typing import Dict, Optional, Callable
 from datetime import timedelta
 from .meta_learner import MetaLearner
 from .kalman_filter import KalmanTrend
-from .transformer_model import TransformerForecaster
+# from .transformer_model import TransformerForecaster
 from .ensemble import EnsembleModel
 import gc
 
@@ -204,10 +204,10 @@ class WalkForwardForecaster:
         daily_returns = data['Close'].pct_change().fillna(0) # Raw market returns
         strategy_daily_pnl = np.zeros(n) # Aggregated PnL stream
         
-        # Transformer State
-        tf_model = TransformerForecaster(input_dim=len(self.feature_cols), seq_len=10)
-        tf_needs_retrain = True
-        tf_last_train_fold = -999
+        # Transformer State (DISABLED FOR MEMORY OPTIMIZATION)
+        # tf_model = TransformerForecaster(input_dim=len(self.feature_cols), seq_len=10)
+        # tf_needs_retrain = True
+        # tf_last_train_fold = -999
         
         fold = 0
         while current_idx < n:
@@ -243,21 +243,21 @@ class WalkForwardForecaster:
             lgbm.fit(X_train_scaled, y_train)
             lgbm_pred = float(lgbm.predict(X_test_scaled)[0])
             
-            # --- MODEL 2: Transformer (Schedule: Every 60 folds) ---
-            if (fold - tf_last_train_fold) >= 60:
-                tf_needs_retrain = True
+            # --- MODEL 2: Transformer (DISABLED) ---
+            # if (fold - tf_last_train_fold) >= 60:
+            #     tf_needs_retrain = True
             
-            if tf_needs_retrain:
-                try:
-                    tf_model.fit(X_train_scaled.tail(1000), pd.Series(y_train).tail(1000), epochs=5)
-                    tf_last_train_fold = fold
-                    tf_needs_retrain = False
-                except Exception as e:
-                    if self.verbose: self.log_func(f"Transformer Train Error: {e}")
+            # if tf_needs_retrain:
+            #     try:
+            #         tf_model.fit(X_train_scaled.tail(1000), pd.Series(y_train).tail(1000), epochs=5)
+            #         tf_last_train_fold = fold
+            #         tf_needs_retrain = False
+            #     except Exception as e:
+            #         if self.verbose: self.log_func(f"Transformer Train Error: {e}")
             
-            # Inference (Always run, weights frozen if not retrained)
-            tf_mu, tf_sigma = tf_model.predict(X_train_scaled.tail(30)) # Use Context
-            tf_pred = tf_mu
+            # Inference (Disabled)
+            # tf_mu, tf_sigma = tf_model.predict(X_train_scaled.tail(30)) # Use Context
+            tf_pred = 0.0 # Placeholder
             
             # --- ENSEMBLE ---
             current_vol_annual = float(test_row['Vol_20'].iloc[0]) * np.sqrt(252)
