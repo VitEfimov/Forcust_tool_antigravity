@@ -30,6 +30,7 @@ logging.basicConfig(
     format='%(asctime)s - %(message)s'
 )
 logger = logging.getLogger()
+import gc
 
 REPORT_DIR = project_root / "data" / "daily_reports"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -382,9 +383,9 @@ def run_daily_automation():
             # SPY Walk-Forward 1
             {"symbol": "SPY", "horizon": 10, "train_window": 730, "step": 30, "meta": True},
             # SPY Walk-Forward 2
-            {"symbol": "SPY", "horizon": 100, "train_window": 1000, "step": 5, "meta": True},
-            # SPY Walk-Forward 3
-            {"symbol": "SPY", "horizon": 200, "train_window": 2000, "step": 1, "meta": True},
+            {"symbol": "SPY", "horizon": 100, "train_window": 1000, "step": 30, "meta": True},
+            # SPY Walk-Forward 3 (Optimization: step=5 to save memory/compute)
+            {"symbol": "SPY", "horizon": 200, "train_window": 2000, "step": 5, "meta": True},
         ]
         
         # 2. V2 Simulation Targets (Default Daily Config: Horizon 10)
@@ -518,10 +519,13 @@ def run_daily_automation():
             except Exception as e:
                 logger.error(f"Analysis failed for {target_symbol}: {e}")
                 monitor.log_heartbeat("DailyAutomation", "warning", {
-                    "step": "symbol_failed", 
-                    "symbol": target_symbol, 
+                    "step": "symbol_failed",
+                    "symbol": target_symbol,
                     "error": str(e)
                 })
+            
+            # Optimization: GC after each symbol
+            gc.collect()
         
         # Combine Reports
         full_report = "\n\n".join(final_reports)

@@ -12,6 +12,7 @@ from .meta_learner import MetaLearner
 from .kalman_filter import KalmanTrend
 from .transformer_model import TransformerForecaster
 from .ensemble import EnsembleModel
+import gc
 
 RND = 42
 np.random.seed(RND)
@@ -149,6 +150,10 @@ class WalkForwardForecaster:
         df['Ret_3'] = df['Close'].pct_change(3).fillna(0)
         df['Ret_5'] = df['Close'].pct_change(5).fillna(0)
         
+        # --- OPTIMIZATION: Downcast to float32 for Memory (50% savings) ---
+        numeric_cols = df.select_dtypes(include=['float64']).columns
+        df[numeric_cols] = df[numeric_cols].astype('float32')
+        
         # --- NEW: Kalman Filter Trend ---
         kt = KalmanTrend()
         # fit_transform returns Series. We handle fillna for start
@@ -232,8 +237,8 @@ class WalkForwardForecaster:
                 learning_rate=0.03, 
                 num_leaves=63, 
                 verbosity=-1, 
-                n_jobs=-1,
-                # device='gpu' # Enable if environment supports it
+                n_jobs=1, # Optimization: 1 thread reduces memory overhead significantly
+                histogram_pool_size=64 # Optimization: Limit histo memory to 64MB
             )
             lgbm.fit(X_train_scaled, y_train)
             lgbm_pred = float(lgbm.predict(X_test_scaled)[0])
@@ -349,6 +354,10 @@ class WalkForwardForecaster:
             if self.verbose and (fold % 50 == 0 or fold == 1):
                 self.log_func(f"[fold {fold}] Reliab={reliability_prob:.2f} Pos={position:.2f} Vol={current_vol_annual:.1%}")
                 
+            # Cleanup per fold
+            if fold % 10 == 0:
+                gc.collect()
+
             current_idx += self.step
 
         # Finalize Results
