@@ -139,8 +139,8 @@ def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, u
     """Run Walk-Forward Pipeline (Rolling Training)."""
     try:
         from src.models.walk_forward import WalkForwardForecaster
-    except ImportError:
-        logger.info(f"  Lightweight Mode: Skipping ML for {symbol} (dependencies missing).")
+    except ImportError as e:
+        logger.info(f"  Lightweight Mode: Skipping ML for {symbol} (dependencies missing: {e}).")
         # Return basic data so the pipeline continues
         df = loader.get_data(symbol)
         if df.empty: return None
@@ -208,8 +208,8 @@ def step_4_simulation(symbol, loader, current_price):
     """Run Fast Monte-Carlo (Advanced Simulation)."""
     try:
         from src.models.advanced_simulation import AdvancedSimulator
-    except ImportError:
-        logger.info(f"  Lightweight Mode: Skipping Simulation for {symbol} (dependencies missing).")
+    except ImportError as e:
+        logger.info(f"  Lightweight Mode: Skipping Simulation for {symbol} (dependencies missing: {e}).")
         return {
             "mc_p10": current_price,
             "mc_p50": current_price,

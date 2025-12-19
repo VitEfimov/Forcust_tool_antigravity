@@ -2,14 +2,21 @@
 from pathlib import Path
 project_root = Path(__file__).resolve().parent
 
-log_file = project_root / "api_error_log.txt"
-if not log_file.exists():
-    log_file = project_root / "server_log.txt"
+
+log_file = project_root / "server_debug_correct.log"
 
 print(f"Reading {log_file}...")
 try:
-    with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+    # Try utf-16 first (PowerShell default)
+    with open(log_file, "r", encoding="utf-16", errors="ignore") as f:
         lines = f.readlines()
-        print("\n".join(lines[-30:]))
+        print("\n".join(lines[-200:]))
 except Exception as e:
-    print(f"Error reading log: {e}")
+    print(f"Failed utf-16, trying utf-8: {e}")
+    try:
+        with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+            print("\n".join(lines[-50:]))
+    except Exception as e2:
+         print(f"Error: {e2}")
+
