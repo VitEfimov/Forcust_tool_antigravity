@@ -191,14 +191,16 @@ def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, u
     
     if not results.empty:
         last_row = results.iloc[-1]
-        latest_pred = last_row.get('pred_price', latest_pred)
-        reliability = last_row.get('reliability', 1.0) # From Meta-Learner
-        # We might need to persist 'regime' in results if possible, or re-derive
-        # For now, let's assume 'Regime' column exists or we re-calc
-        regime_label = last_row.get('Regime', 'Sideways') # If WF adds this col
+        # Calculate Price from Log Return
+        # Pred Price = Current Price * exp(Pred Log Return)
+        pred_log_ret = last_row.get('pred_log_ret', 0.0)
+        latest_pred = latest_pred * np.exp(pred_log_ret)
+        
+        reliability = last_row.get('reliability_prob', 1.0) # Correct key is reliability_prob
+        regime_label = last_row.get('regime', 'Sideways') # Key is lowercase 'regime'
         
     return {
-        "dates": results['Date'].iloc[-1] if not results.empty else datetime.now(),
+        "dates": results.index[-1] if not results.empty else datetime.now(), # Index is 'date' or 'fold'? check wf
         "ml_forecast_price": latest_pred,
         "reliability_score": reliability,
         "regime": regime_label,
