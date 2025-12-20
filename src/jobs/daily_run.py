@@ -200,7 +200,7 @@ def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, u
         regime_label = last_row.get('regime', 'Sideways') # Key is lowercase 'regime'
         
     return {
-        "dates": results.index[-1] if not results.empty else datetime.now(), # Index is 'date' or 'fold'? check wf
+        "dates": last_row['date'] if not results.empty else datetime.now(),
         "ml_forecast_price": latest_pred,
         "reliability_score": reliability,
         "regime": regime_label,
@@ -241,14 +241,18 @@ def step_4_simulation(symbol, loader, current_price):
         except:
             method = 'simple'
             
+        if method == 'garch':
+            # Fit GARCH parameters properly
+            # Assume single global regime for daily fast simulation
+            regimes = np.zeros(len(returns), dtype=int)
+            params = sim.fit_regime_params(returns, regimes)
+        else:
+            params={0: {'method': 'simple', 'std': returns.std(), 'mean': returns.mean()}}
+            
         res = sim.simulate_paths(
             start_price=current_price,
             start_regime=0,
-            params={0: {'method': 'simple', 'std': returns.std(), 'mean': returns.mean()}}, 
-            # Note: passing params dict is slightly heuristic here, 
-            # ideally we let sim fit itself. But simulate_paths takes dict.
-            # actually simulate_paths usually does NOT re-fit unless we passed fitted models.
-            # To be safe/fast: use 'simple' volatility computed here.
+            params=params, 
             days=30,
             sims=1000,
             engine='numpy' 
@@ -266,7 +270,7 @@ def step_4_simulation(symbol, loader, current_price):
         logger.error(f"Simulation failed: {e}")
         return {"mc_p50": current_price}
 
-def generate_report_content(symbol, market_data, wf_data, sim_data):
+def generate_report_content(symbol, wf_data, sim_data):
     """
     Generate Plain-Language Summary (Section 2.5).
     """
@@ -388,6 +392,8 @@ def run_daily_automation():
             {"symbol": "SPY", "horizon": 100, "train_window": 1000, "step": 30, "meta": True},
             # SPY Walk-Forward 3 (Optimization: step=5 to save memory/compute)
             # Optimization: Reduced window from 2000 to 1000 for 512MB RAM limit
+            # NOTE: step=5 << horizon=200 implies significant overlap. This is intentional 
+            # to maximize training samples from limited history. Meta-Learner handles leakage.
             {"symbol": "SPY", "horizon": 200, "train_window": 1000, "step": 5, "meta": True},
         ]
         
@@ -485,7 +491,7 @@ def run_daily_automation():
                 
                 # Step 5: Generate Report (Only for H=10 or primary config to avoid log spam?)
                 # We'll generate for all but maybe group them.
-                report_text = generate_report_content(target_symbol, loader, wf_data, sim_data)
+                report_text = generate_report_content(target_symbol, wf_data, sim_data)
                 final_reports.append(f"CONFIG: H={horizon} | {report_text}")
                 
                 
@@ -598,9 +604,7 @@ def run_daily_automation():
         
         duration = time.time() - start_time
         monitor.log_heartbeat("DailyAutomation", "success", {
-            "targets": standard_targets, # Corrected: standard_targets was defined, 'targets' was not in scope? wait.
-            # Oh, 'targets' usage in original code (line 522) was likely incorrect or I missed where it was defined.
-            # Ah, standard_targets is defined. Let's use that.
+            "targets": ",".join(standard_targets), # Safer: Join list to string
             "updated_symbols": len(watchlist) + 10
         }, duration)
         

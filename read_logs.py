@@ -3,7 +3,7 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent
 
 
-log_file = project_root / "server_aggressive.log"
+log_file = project_root / "server_simulation_fix.log"
 
 print(f"Reading {log_file}...")
 try:

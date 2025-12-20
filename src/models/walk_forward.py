@@ -282,26 +282,33 @@ class WalkForwardForecaster:
             if self.use_meta_learner and len(records) >= 20: 
                 try:
                     # Construct Meta History
-                    meta_history = pd.DataFrame(records)
-                    meta_history['date'] = pd.to_datetime(meta_history['date'])
-                    
-                    market_cols = [c for c in data.columns if 'VIX' in c or 'Close' == c] 
-                    meta_train_df = pd.merge(meta_history, data[market_cols], left_on='date', right_index=True, how='left')
-                    
-                    # Only Retrain Periodically
-                    if should_retrain_meta or not self.meta_learner.is_fitted:
-                        self.meta_learner.train(meta_train_df, 'pred_log_ret', 'actual_log_ret')
-                    
-                    # Predict Reliability
-                    recent_history = meta_train_df.tail(40).copy()
-                    
-                    # Create current context row
-                    current_context_row = test_row.copy()
-                    current_context_row['pred_log_ret'] = raw_pred_log_ret 
-                    
-                    current_context = pd.concat([recent_history, current_context_row], axis=0, ignore_index=True)
-                    
-                    reliability_prob = self.meta_learner.predict_reliability(current_context)
+                    leakage_lag = int(np.ceil(self.prediction_horizon / self.step)) - 1
+                    if leakage_lag > 0:
+                        safe_records = records[:-leakage_lag]
+                    else:
+                        safe_records = records
+
+                    if len(safe_records) >= 20: 
+                        meta_history = pd.DataFrame(safe_records)
+                        meta_history['date'] = pd.to_datetime(meta_history['date'])
+                        
+                        market_cols = [c for c in data.columns if 'VIX' in c or 'Close' == c] 
+                        meta_train_df = pd.merge(meta_history, data[market_cols], left_on='date', right_index=True, how='left')
+                        
+                        # Only Retrain Periodically
+                        if should_retrain_meta or not self.meta_learner.is_fitted:
+                            self.meta_learner.train(meta_train_df, 'pred_log_ret', 'actual_log_ret')
+                        
+                        # Predict Reliability
+                        recent_history = meta_train_df.tail(40).copy()
+                        
+                        # Create current context row
+                        current_context_row = test_row.copy()
+                        current_context_row['pred_log_ret'] = raw_pred_log_ret 
+                        
+                        current_context = pd.concat([recent_history, current_context_row], axis=0, ignore_index=True)
+                        
+                        reliability_prob = self.meta_learner.predict_reliability(current_context)
                 except Exception as e:
                     if self.verbose: self.log_func(f"Meta-Learner Error: {e}")
 
