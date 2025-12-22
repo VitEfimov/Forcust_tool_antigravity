@@ -194,7 +194,11 @@ class WalkForwardForecaster:
         data = self.prepare_features()
         n = len(data)
         if n < self.train_window + self.prediction_horizon:
-            raise ValueError("Not enough data for the chosen train_window + prediction_horizon")
+            # Fallback for very short history: minimal return
+            # Instead of raising error, we log and return empty so outer loop handles it
+            if self.verbose:
+                self.log_func(f"[WalkForward] Not enough data: {n} < {self.train_window} + {self.prediction_horizon}")
+            return pd.DataFrame()
 
         current_idx = self.train_window
         records = []
@@ -260,8 +264,19 @@ class WalkForwardForecaster:
             tf_pred = 0.0 # Placeholder
             
             # --- ENSEMBLE ---
-            current_vol_annual = float(test_row['Vol_20'].iloc[0]) * np.sqrt(252)
-            current_trend_slope = float(test_row['Trend_Slope'].iloc[0])
+            # ROBUST REGIME LOGIC
+            try:
+                vol_val = float(test_row['Vol_20'].iloc[0])
+                if np.isnan(vol_val): vol_val = 0.01 # Default low vol
+                current_vol_annual = vol_val * np.sqrt(252)
+                
+                trend_val = float(test_row['Trend_Slope'].iloc[0])
+                if np.isnan(trend_val): trend_val = 0.0
+                current_trend_slope = trend_val
+            except:
+                current_vol_annual = 0.20
+                current_trend_slope = 0.0
+            
             regime_code = 1 if current_vol_annual < self.regime_vol_threshold else 0 
             
             ens = EnsembleModel()
@@ -317,7 +332,7 @@ class WalkForwardForecaster:
             min_signal = 0.0005 # 5bps
             if abs(raw_pred_log_ret) < min_signal:
                 final_pred_log_ret = 0.0
-                reliability_prob = 0.0 # Effectively no trade
+                # Don't crush reliability, just signals
             else:
                 final_pred_log_ret = raw_pred_log_ret * reliability_prob # Scale by probability
             

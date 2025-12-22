@@ -277,6 +277,8 @@ def generate_report_content(symbol, wf_data, sim_data):
     price = wf_data['current_price']
     ml_target = wf_data.get('ml_forecast_price')
     mc_target = sim_data.get('mc_p50')
+    mc_p10 = sim_data.get('mc_p10')
+    mc_p90 = sim_data.get('mc_p90')
     rel_score = wf_data.get('reliability_score', 0.5)
     
     # Calculations
@@ -297,6 +299,13 @@ def generate_report_content(symbol, wf_data, sim_data):
         mc_upside = 0
         mc_upside_str = "N/A"
         mc_target_str = "N/A"
+
+    # Confidence Intervals
+    range_str = "N/A"
+    if mc_p10 and mc_p90:
+        p10_upside = (mc_p10 - price) / price * 100
+        p90_upside = (mc_p90 - price) / price * 100
+        range_str = f"[{p10_upside:+.1f}%, {p90_upside:+.1f}%]"
     
     # Agreement
     agreement = "WAITING FOR CLOUD WORKER"
@@ -316,6 +325,14 @@ def generate_report_content(symbol, wf_data, sim_data):
     effective_ml_return = ml_upside * rel_score
     
     date_str = datetime.now().strftime("%Y-%m-%d")
+
+    # Regime Logic Fallback
+    regime = wf_data.get('regime', 'Unknown')
+    if regime == 'Unknown':
+        # Simple fallback based on price vs MC
+        if mc_upside > 5: regime = 'Bull'
+        elif mc_upside < -5: regime = 'Bear'
+        else: regime = 'Sideways'
     
     report = f"""
 ============================================================
@@ -325,13 +342,14 @@ ASSET: {symbol}
 PRICE: {price:.2f}
 
 1. MARKET REGIME
-   - Classification: {wf_data.get('regime', 'Unknown').upper()}
+   - Classification: {regime.upper()}
    - Volatility State: {"HIGH" if rel_score < 0.5 else "NORMAL"}
    - VIX Level: (See Dashboard)
 
-2. FORECASTS (30-Day Horizon)
+2. FORECASTS (Horizon: {wf_data.get('horizon', 'N/A')} Days)
    - ML Model Target: {ml_target_str} ({ml_upside_str})
    - Monte-Carlo Target: {mc_target_str} ({mc_upside_str})
+   - 80% Confidence Range: {range_str}
    - Agreement Level: {agreement}
 
 3. META-LEARNER (Reliability Layer)
@@ -339,7 +357,7 @@ PRICE: {price:.2f}
    - Adjusted Prediction: {effective_ml_return:+.2f}% Upside
 
 4. STRATEGY OUTLOOK
-   The system detects a {wf_data.get('regime', 'Unknown')} environment.
+   The system detects a {regime} environment.
    Machine Learning suggests a {ml_upside_str} move, while statistical simulations suggest {mc_upside_str}.
    
    Final Verdict: {agreement}
@@ -422,6 +440,13 @@ def run_daily_automation():
         
         # Track processed symbols to avoid duplicate Simulations per run if multiple configs exist
         processed_sim_symbols = set()
+        
+        # Capture critical market stats for summary
+        market_stats = {
+            "regime": "Unknown",
+            "model_confidence": 0.5,
+            "forecast_spy": {}
+        }
 
         total_configs = len(ANALYSIS_CONFIGS)
         for i, config in enumerate(ANALYSIS_CONFIGS):
@@ -461,8 +486,18 @@ def run_daily_automation():
                     print(f"Walk-Forward Failed for {target_symbol}. Skipping.")
                     continue
                 
+                wf_data['horizon'] = horizon
                 current_price = wf_data['current_price']
                 
+                # Capture Stats for Summary (Prefer SPY 10d)
+                if target_symbol == 'SPY' and horizon == 10:
+                    market_stats['regime'] = wf_data.get('regime', 'Unknown')
+                    market_stats['model_confidence'] = wf_data.get('reliability_score', 0.5)
+                    market_stats['forecast_spy'] = {
+                        "pred": wf_data['ml_forecast_price'],
+                        "upside": (wf_data['ml_forecast_price'] - current_price) / current_price
+                    }
+
                 # Update Actuals using the fresh current price
                 db.update_actuals(target_symbol, datetime.now().strftime("%Y-%m-%d"), current_price)
                 
@@ -551,17 +586,6 @@ def run_daily_automation():
         try:
             from src.core.database import get_db
             
-            # 1. Get SPY Metrics
-            spy_summary = {}
-            # We assume SPY was analyzed. Find its data in our local vars or re-fetch?
-            # actually we don't have easy access to 'wf_data' here unless we stored it.
-            # Ideally we'd have a 'results_map'. But let's just grab if target_symbol was SPY in loop.
-            # We can't re-access variables from inside the loop easily. 
-            # Better approach: store results in a dict during loop.
-            
-            # Simple workaround: Parse the report or just execute for SPY specifically if we need strict data.
-            # Or better: We'll modify the loop above to store 'spy_data' if target=='SPY'.
-            
             # Let's check VIX and Credit Spread from Loader
             vix_val = 0.0
             credit_spread_val = 1.0
@@ -585,10 +609,9 @@ def run_daily_automation():
                 "date": datetime.now().strftime("%Y-%m-%d"),
                 "vix": vix_val,
                 "credit_spread": credit_spread_val,
-                # Placeholders for now until we refactor loop to extract these
-                "regime": "Unknown", 
-                "model_confidence": 0.5,
-                "forecast_spy": {}
+                "regime": market_stats['regime'], 
+                "model_confidence": market_stats['model_confidence'],
+                "forecast_spy": market_stats['forecast_spy']
             }
             
             get_db().save_market_summary(market_summary)
