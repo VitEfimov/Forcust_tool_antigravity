@@ -174,7 +174,7 @@ class AdvancedSimulator:
         """
         # Dispatch to Version 3 Engines
         if engine == 'numpy' and vectorized_simulate:
-            return vectorized_simulate(start_price, start_regime, params, transmat, days, sims, conservative, seed)
+            return vectorized_simulate(start_price, start_regime, params, transmat, days, sims, conservative, seed, daily_drift=daily_drift)
         elif engine == 'numba' and numba_simulate_wrapper:
             return numba_simulate_wrapper(start_price, start_regime, params, transmat, days, sims, conservative, seed)
         elif engine == 'torch' and torch_simulate:

@@ -94,8 +94,37 @@ def start_scheduler():
     # 2. Weekly Training -> GitHub Action (weekly_training.yml)
     # 3. Market Overview -> GitHub Action (market_open.yml)
     
+    # --- PROPOSED FIX: Enable Local Scheduling for VPS/Local setups ---
+    # Warning: This runs heavy compute in the same process as the API.
+    # Ensure usage of async workers or enough resources.
+    
+    print("[SCHEDULER] Configuring local jobs...")
+    
+    # 1. Market Overview (10:00 AM and 16:15 PM EST)
+    scheduler.add_job(
+        run_scheduled_market_overview, 
+        CronTrigger(hour=10, minute=0, timezone='America/New_York'),
+        id="market_overview_open",
+        replace_existing=True
+    )
+    scheduler.add_job(
+        run_scheduled_market_overview, 
+        CronTrigger(hour=16, minute=15, timezone='America/New_York'),
+        id="market_overview_close",
+        replace_existing=True
+    )
+    
+    # 2. Daily Automation (18:30 PM EST)
+    # Runs the full production loop
+    scheduler.add_job(
+        run_daily_automation,
+        CronTrigger(hour=18, minute=30, timezone='America/New_York'),
+        id="daily_automation",
+        replace_existing=True
+    )
+
     scheduler.start()
-    print("[SCHEDULER] Background scheduler started (API Mode - No local jobs).")
+    print("[SCHEDULER] Background scheduler started with LOCAL JOBS enabled.")
 
 def stop_scheduler():
     scheduler.shutdown()

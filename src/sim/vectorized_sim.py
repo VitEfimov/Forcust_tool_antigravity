@@ -15,7 +15,8 @@ def vectorized_simulate(
     days: int = 730,
     sims: int = 20000,
     conservative: bool = False,
-    seed: int | None = None
+    seed: int | None = None,
+    daily_drift: float | None = None
 ) -> Dict[str, Any]:
     rng = np.random.default_rng(seed)
     n_regimes = transmat.shape[0] if transmat is not None else len(params)
@@ -88,11 +89,16 @@ def vectorized_simulate(
                 # draw t shocks
                 shocks = _rand_student_t(df, size=mask.sum(), rng=rng) / math.sqrt(df / (df - 2))
                 ret_seg = shocks * vol[mask]
+                
+                # Apply Drift
+                if daily_drift is not None:
+                     ret_seg += daily_drift
+                     
                 prev_shock[mask] = ret_seg * 100.0
                 ret[mask] = ret_seg
             else:
                 # simple normal fallback
-                mu = p.get("mean", 0.0)
+                mu = daily_drift if daily_drift is not None else p.get("mean", 0.0)
                 sigma = p.get("std", 0.02)
                 ret_seg = rng.normal(loc=mu, scale=sigma, size=mask.sum())
                 prev_shock[mask] = (ret_seg - mu) * 100.0
