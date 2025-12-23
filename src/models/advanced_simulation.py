@@ -166,7 +166,7 @@ class AdvancedSimulator:
 
         return params
 
-    def simulate_paths(self, start_price, start_regime, params, transmat=None, days=730, sims=1000, cap=0.3, seed=None, conservative=False, engine='legacy'):
+    def simulate_paths(self, start_price, start_regime, params, transmat=None, days=730, sims=1000, cap=0.3, seed=None, conservative=False, engine='legacy', daily_drift=None):
         """
         Simulate paths using Regime-Switching GARCH + Jump Diffusion.
         transmat: Transition matrix (n_states x n_states). If None, regime is fixed.
@@ -248,8 +248,14 @@ class AdvancedSimulator:
                     # Update previous shock for next step
                     prev_shock_pct = ret * 100.0
                     
+                    # Add ML Drift if provided
+                    if daily_drift is not None:
+                        ret += daily_drift
+
                 else:
-                    ret = rng.normal(p['mean'], p['std'])
+                    # Use ML Drift if provided, else Historical Mean
+                    mu = daily_drift if daily_drift is not None else p['mean']
+                    ret = rng.normal(mu, p['std'])
                     # For simple regime, shock is return minus mean (approx)
                     prev_shock_pct = (ret - p['mean']) * 100.0
                 

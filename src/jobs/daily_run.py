@@ -207,7 +207,7 @@ def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, u
         "current_price": df['Close'].iloc[-1]
     }
 
-def step_4_simulation(symbol, loader, current_price):
+def step_4_simulation(symbol, loader, current_price, ml_drift=None):
     """Run Fast Monte-Carlo (Advanced Simulation)."""
     try:
         from src.models.advanced_simulation import AdvancedSimulator
@@ -219,7 +219,7 @@ def step_4_simulation(symbol, loader, current_price):
             "mc_p90": current_price
         }
 
-    logger.info(f"Step 2.4: Advanced Simulation for {symbol}")
+    logger.info(f"Step 2.4: Advanced Simulation for {symbol} (Drift={ml_drift})")
     
     try:
         sim = AdvancedSimulator()
@@ -255,7 +255,8 @@ def step_4_simulation(symbol, loader, current_price):
             params=params, 
             days=30,
             sims=1000,
-            engine='numpy' 
+            engine='numpy',
+            daily_drift=ml_drift # Inject ML Drift
         )
         
         # Extract Quantiles
@@ -447,6 +448,9 @@ def run_daily_automation():
             "model_confidence": 0.5,
             "forecast_spy": {}
         }
+        
+        # New: Global Regime Tracker
+        GLOBAL_MARKET_REGIME = "Unknown"
 
         total_configs = len(ANALYSIS_CONFIGS)
         for i, config in enumerate(ANALYSIS_CONFIGS):
@@ -492,12 +496,18 @@ def run_daily_automation():
                 # Capture Stats for Summary (Prefer SPY 10d)
                 if target_symbol == 'SPY' and horizon == 10:
                     market_stats['regime'] = wf_data.get('regime', 'Unknown')
+                    GLOBAL_MARKET_REGIME = market_stats['regime'] # Set Global Truth
+                    
                     market_stats['model_confidence'] = wf_data.get('reliability_score', 0.5)
                     market_stats['forecast_spy'] = {
                         "pred": wf_data['ml_forecast_price'],
                         "upside": (wf_data['ml_forecast_price'] - current_price) / current_price
                     }
-
+                
+                # Enforce Global Regime Consistency (Optional: Or just log it?)
+                # If we are analyzing a correlated asset (like Tech) and it says Bear but SPY says Bull,
+                # we might want to flag it. For now, we trust the asset-level but we use Global for the SUMMARY.
+                
                 # Update Actuals using the fresh current price
                 db.update_actuals(target_symbol, datetime.now().strftime("%Y-%m-%d"), current_price)
                 
@@ -505,7 +515,17 @@ def run_daily_automation():
                 # The User request lists "Advanced Simulation V2" separately with a list of symbols.
                 # Typically Sim is multi-horizon. Let's run it once per symbol.
                 if target_symbol not in processed_sim_symbols:
-                    sim_data = step_4_simulation(target_symbol, loader, current_price)
+                    # CALCULATE DRIFT FROM ML
+                    # ml_forecast_price is prediction at 'horizon' days.
+                    # annual_drift = log(P_h/P_0) / h * 252?  Simulation takes daily_drift.
+                    # daily_drift = log(P_h / P_0) / h
+                    ml_drift = np.log(wf_data['ml_forecast_price'] / current_price) / horizon
+                    
+                    # Sanity Check Drift (don't inject crazy values)
+                    # Cap at +/- 1% daily (huge)
+                    ml_drift = max(min(ml_drift, 0.01), -0.01)
+                    
+                    sim_data = step_4_simulation(target_symbol, loader, current_price, ml_drift=ml_drift)
                     
                     # Save Sim Result
                     sim_result = AdvancedSimulationResult(

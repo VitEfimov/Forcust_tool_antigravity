@@ -289,7 +289,37 @@ class WalkForwardForecaster:
             )
 
             # --- META-LEARNING (Reliability) ---
-            reliability_prob = 1.0 # Default High Trust
+            # reliability_prob = 1.0 # Default High Trust
+            
+            # Dynamic Reliability Baseline (Heuristic)
+            # reliability = clamp(sigmoid(- rolling_MAE / rolling_vol), 0.2, 0.8)
+            reliability_prob = 0.5 # Default neutral
+            
+            if len(records) >= 10:
+                # Calculate Rolling Params
+                rec_df = pd.DataFrame(records[-20:]) # Look at last 20
+                
+                # MAE of predictions vs actuals
+                # error = abs(pred - actual)
+                # Note: 'pred_log_ret' in records is the RAW Lgbm+Ensemble prediction before reliability scaling
+                # We should evaluate the RAW signal quality.
+                errors = np.abs(rec_df['pred_log_ret'] - rec_df['actual_log_ret'])
+                rolling_mae = errors.mean()
+                
+                # Volatility (of the asset's actual returns)
+                rolling_vol = rec_df['actual_log_ret'].std()
+                if np.isnan(rolling_vol) or rolling_vol == 0:
+                    rolling_vol = 0.01
+
+                # Formula: reliability = clamp( sigmoid( - MAE / Vol ), 0.2, 0.8 )
+                # Since MAE and Vol are positive, -MAE/Vol is negative.
+                # sigmoid(negative) is < 0.5.
+                # This logic effectively penalizes high error relative to volatility.
+                z = - (rolling_mae / rolling_vol)
+                raw_score = 1 / (1 + np.exp(-z)) 
+                
+                reliability_prob = np.clip(raw_score, 0.2, 0.8)
+
             
             # Retrain meta-learner every 20 folds to save compute
             should_retrain_meta = (self.use_meta_learner and len(records) >= 20 and (fold % 20 == 0))
