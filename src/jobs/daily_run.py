@@ -672,11 +672,6 @@ def run_daily_automation():
         # Cleanup Old Reports
         cleanup_reports(14)
         
-    finally:
-        # Ensure Pinger Stops even if error
-        stop_ping.set()
-        ping_thread.join(timeout=2)
-        
         print("=== DAILY AUTOMATION COMPLETE ===")
         
         duration = time.time() - start_time
@@ -689,6 +684,11 @@ def run_daily_automation():
         duration = time.time() - start_time
         logger.error(f"Daily Run Failed: {e}")
         monitor.log_heartbeat("DailyAutomation", "error", {"error": str(e)}, duration)
+
+    finally:
+        # Ensure Pinger Stops even if error
+        stop_ping.set()
+        ping_thread.join(timeout=2)
 
 if __name__ == "__main__":
     run_daily_automation()
