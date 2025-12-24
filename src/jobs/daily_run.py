@@ -20,6 +20,8 @@ from src.core.database import get_watchlist
 from src.core.monitoring import monitor
 from src.core.control import task_controller
 import time
+import threading
+import requests
 
 # Logging
 LOG_DIR = project_root / "data" / "logs"
@@ -383,9 +385,36 @@ def cleanup_reports(days_retention=14):
     except Exception as e:
         logger.error(f"Cleanup failed: {e}")
 
+        logger.error(f"Cleanup failed: {e}")
+
+def keep_alive_pinger(stop_event):
+    """
+    Background thread to ping the server every 9 minutes execution.
+    Target: https://forcust-tool-antigravity.vercel.app/
+    purpose: Prevent idle timeout on free tier / keep server alive.
+    """
+    url = "https://forcust-tool-antigravity.vercel.app/"
+    logger.info(f"[KeepAlive] Starting ping loop to {url}")
+    while not stop_event.is_set():
+        try:
+            logger.info("[KeepAlive] Pinging server...")
+            requests.get(url, timeout=10)
+        except Exception as e:
+            logger.warning(f"[KeepAlive] Ping failed: {e}")
+            
+        # Wait 9 minutes (540s) or until stopped
+        if stop_event.wait(540):
+            break
+    logger.info("[KeepAlive] Stopped.")
+
 def run_daily_automation():
     start_time = time.time()
     print("=== STARTING DAILY AUTOMATION (SECTION 2 SPEC) ===")
+    
+    # Start Keep-Alive Thread
+    stop_ping = threading.Event()
+    ping_thread = threading.Thread(target=keep_alive_pinger, args=(stop_ping,), daemon=True)
+    ping_thread.start()
     
     try:
         monitor.log_heartbeat("DailyAutomation", "running", {"step": "start"})
@@ -642,6 +671,11 @@ def run_daily_automation():
             
         # Cleanup Old Reports
         cleanup_reports(14)
+        
+    finally:
+        # Ensure Pinger Stops even if error
+        stop_ping.set()
+        ping_thread.join(timeout=2)
         
         print("=== DAILY AUTOMATION COMPLETE ===")
         
