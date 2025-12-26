@@ -447,8 +447,8 @@ def run_daily_automation():
         
         # 2. V2 Simulation Targets (Default Daily Config: Horizon 10)
         # SPY is already covered above, but for consistency in "Simulation" we ensure it runs.
-        # Adding others: NASDAQ (^IXIC), AAPL, NVDA, SPCE
-        standard_targets = ['^IXIC', 'AAPL', 'NVDA', 'SPCE']
+        # Adding others: Configured Targets
+        standard_targets = settings.TRAINING_TARGETS.copy()
         
         # Add Top Watchlist if missing
         if watchlist and watchlist[0] not in standard_targets and watchlist[0] != 'SPY':

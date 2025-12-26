@@ -23,5 +23,8 @@ class Settings:
     TIER_2_INDICES: list = ['^IXIC', '^RUT', 'GC=F']
     TIER_3_INDICES: list = ['^VVIX', '^SKEW', 'HYG', 'LQD'] # Advanced Risk Metrics
     MEGA_CAP_COMPONENTS: list = ['AAPL', 'MSFT', 'AMZN', 'GOOGL', 'NVDA', 'META', 'BRK-B', 'JPM', 'JNJ', 'TSLA']
+    
+    # Training Config
+    TRAINING_TARGETS: list = ['^IXIC', 'AAPL', 'NVDA', 'SPCE']
 
 settings = Settings()
