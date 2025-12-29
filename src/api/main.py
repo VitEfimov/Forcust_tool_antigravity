@@ -39,6 +39,7 @@ app.add_middleware(
 app.include_router(router)
 
 @app.get("/")
+@app.head("/")
 def root():
     return {"status": "ok", "message": "Antigravity API is running"}
 

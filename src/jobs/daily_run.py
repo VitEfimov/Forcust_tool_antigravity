@@ -179,7 +179,7 @@ def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, u
         train_window=train_window,
         step=step,
         use_meta_learner=use_meta,
-        verbose=False,
+        verbose=True,
         log_func=logger.info
     )
     
@@ -438,11 +438,10 @@ def run_daily_automation():
             {"symbol": "SPY", "horizon": 10, "train_window": 730, "step": 30, "meta": True},
             # SPY Walk-Forward 2
             {"symbol": "SPY", "horizon": 100, "train_window": 1000, "step": 30, "meta": True},
-            # SPY Walk-Forward 3 (Optimization: step=5 to save memory/compute)
+            # SPY Walk-Forward 3 (Optimization: step=30 for stability)
             # Optimization: Reduced window from 2000 to 1000 for 512MB RAM limit
-            # NOTE: step=5 << horizon=200 implies significant overlap. This is intentional 
-            # to maximize training samples from limited history. Meta-Learner handles leakage.
-            {"symbol": "SPY", "horizon": 200, "train_window": 1000, "step": 5, "meta": True},
+            # NOTE: step=30 reduces total folds from ~1300 to ~220, preventing timeouts.
+            {"symbol": "SPY", "horizon": 200, "train_window": 1000, "step": 30, "meta": True},
         ]
         
         # 2. V2 Simulation Targets (Default Daily Config: Horizon 10)

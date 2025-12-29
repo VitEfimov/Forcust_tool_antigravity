@@ -8,8 +8,47 @@ from src.core.monitoring import monitor
 from src.api.routes import _compute_market_overview, TOP_SP500
 from src.jobs.daily_run import run_daily_automation
 from src.jobs.weekly_train import main as run_weekly_training
+import requests
+import time
 
 scheduler = BackgroundScheduler()
+
+def wakeup_server():
+    """
+    Ensure the API is awake before running heavy background jobs.
+    Retries up to 5 times (5 minutes).
+    """
+    url = "https://forcust-tool-antigravity.vercel.app/"
+    logger_print = print # Simple print for scheduler
+    
+    logger_print("[SCHEDULER] Wakeup check initiated...")
+    for i in range(1, 6):
+        try:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                logger_print(f"[SCHEDULER] Server is awake (Attempt {i}).")
+                return True
+        except Exception as e:
+            logger_print(f"[SCHEDULER] Wakeup attempt {i} failed: {e}")
+            
+        if i < 5:
+            time.sleep(60) # Wait 1 minute
+            
+    logger_print("[SCHEDULER] Server failed to wakeup after 5 attempts. Skipping job.")
+    return False
+
+def wrapped_market_overview():
+    if wakeup_server():
+        run_scheduled_market_overview()
+    else:
+        monitor.log_heartbeat("MarketOverview", "skipped", {"reason": "Server wakeup failed"})
+
+def wrapped_daily_automation():
+    if wakeup_server():
+        run_daily_automation()
+    else:
+        monitor.log_heartbeat("DailyAutomation", "skipped", {"reason": "Server wakeup failed"})
+
 
 def run_scheduled_market_overview():
     """
@@ -102,13 +141,13 @@ def start_scheduler():
     
     # 1. Market Overview (10:00 AM and 16:15 PM EST)
     scheduler.add_job(
-        run_scheduled_market_overview, 
+        wrapped_market_overview, 
         CronTrigger(hour=10, minute=0, timezone='America/New_York'),
         id="market_overview_open",
         replace_existing=True
     )
     scheduler.add_job(
-        run_scheduled_market_overview, 
+        wrapped_market_overview, 
         CronTrigger(hour=16, minute=15, timezone='America/New_York'),
         id="market_overview_close",
         replace_existing=True
@@ -117,7 +156,7 @@ def start_scheduler():
     # 2. Daily Automation (18:30 PM EST)
     # Runs the full production loop
     scheduler.add_job(
-        run_daily_automation,
+        wrapped_daily_automation,
         CronTrigger(hour=18, minute=30, timezone='America/New_York'),
         id="daily_automation",
         replace_existing=True
