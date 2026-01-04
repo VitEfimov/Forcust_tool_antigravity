@@ -8,7 +8,7 @@ import './App.css';
 
 import { LogProvider } from './context/LogContext';
 import LogConsole from './components/LogConsole';
-import Cheatsheets from './components/Cheatsheets';
+import Analytics from './components/Analytics';
 
 function App() {
   const [view, setView] = useState('models'); // Default to System Status
@@ -22,7 +22,7 @@ function App() {
           <a href="#" onClick={() => setView('walk-forward')}>Walk-Forward</a>
           <a href="#" onClick={() => setView('simulation-v2')}>Advanced Simulation</a>
           <a href="#" onClick={() => setView('training')}>ML Training</a>
-          <a href="#" onClick={() => setView('cheatsheets')}>Cheatsheets</a>
+          <a href="#" onClick={() => setView('analytics')}>Analytics</a>
         </div>
 
         <div className="content">
@@ -31,7 +31,7 @@ function App() {
           {view === 'walk-forward' && <WalkForward />}
           {view === 'simulation-v2' && <AdvancedSimulationV2 />}
           {view === 'training' && <ModelTraining />}
-          {view === 'cheatsheets' && <Cheatsheets />}
+          {view === 'analytics' && <Analytics />}
         </div>
 
         <LogConsole />

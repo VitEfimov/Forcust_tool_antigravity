@@ -1,0 +1,138 @@
+.analytics-container {
+    padding: 2rem;
+    color: #fff;
+    min-height: 100vh;
+}
+
+.analytics-header {
+    margin-bottom: 2rem;
+    border-bottom: 1px solid #333;
+    padding-bottom: 1rem;
+}
+
+.analytics-header h2 {
+    font-size: 2rem;
+    color: #646cff;
+    /* Vite/React color or match app theme */
+    margin-bottom: 0.5rem;
+}
+
+.charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    margin-bottom: 3rem;
+}
+
+.chart-card {
+    background: #1a1a1a;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.chart-card h3 {
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    font-size: 1.2rem;
+    color: #ddd;
+    text-align: center;
+}
+
+.snapshot-section {
+    background: #1a1a1a;
+    padding: 2rem;
+    border-radius: 8px;
+}
+
+.snapshot-controls {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+}
+
+.snapshot-controls button {
+    background: #333;
+    border: 1px solid #444;
+    color: #aaa;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+.snapshot-controls button.active {
+    background: #646cff;
+    color: white;
+    border-color: #646cff;
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+.analytics-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.analytics-table th,
+.analytics-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #333;
+}
+
+.analytics-table th {
+    background: #252525;
+    color: #fff;
+    font-weight: 600;
+}
+
+.analytics-table tbody tr:hover {
+    background: #222;
+}
+
+.badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.badge-green {
+    background: rgba(76, 175, 80, 0.2);
+    color: #81c784;
+}
+
+.badge-red {
+    background: rgba(244, 67, 54, 0.2);
+    color: #e57373;
+}
+
+.badge-yellow {
+    background: rgba(255, 235, 59, 0.2);
+    color: #fff176;
+}
+
+.text-green {
+    color: #81c784;
+}
+
+.text-red {
+    color: #e57373;
+}
+
+.font-bold {
+    font-weight: bold;
+}
+
+.analytics-loading,
+.analytics-error {
+    text-align: center;
+    margin-top: 5rem;
+    font-size: 1.5rem;
+    color: #aaa;
+}
