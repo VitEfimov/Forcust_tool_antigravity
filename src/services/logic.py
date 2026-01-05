@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import List, Dict, Any
+from pathlib import Path
 import pandas as pd
 import numpy as np
 # from src.core.repository import MarketRepository, SimulationRepository, WishlistRepository
@@ -105,7 +106,146 @@ class MarketService:
                 print(f"Warning: DB save failed for {symbol}: {e}")
                 return overview
         
-        return overview
+    def get_detailed_analytics(self, symbol: str) -> Dict[str, Any]:
+        """
+        Get high-value analytics including Regime Duration, Transition Matrix,
+        Breadth (if index), and Volatility Structure.
+        """
+        # 1. Base Overview (Price, Regime, etc)
+        # Using today's date
+        today = datetime.now().strftime("%Y-%m-%d")
+        overview = self.get_overview(symbol, today)
+        
+        # 2. Historical Data for Analysis
+        df = self.loader.get_data(symbol, use_cache=True)
+        if df.empty: return {}
+        
+        returns = df['Close'].pct_change().dropna()
+        
+        # 3. Fit HMM for Transition Matrix & Duration
+        hmm = RegimeDetector()
+        hmm.fit(returns)
+        regimes = hmm.predict(returns)
+        
+        # A. Transition Matrix
+        trans_matrix = hmm.get_transition_matrix()
+        
+        # B. Regime Duration (Stickiness)
+        current_regime_idx = regimes[-1]
+        duration = 0
+        for r in reversed(regimes):
+            if r == current_regime_idx:
+                duration += 1
+            else:
+                break
+                
+        # C. Volatility Structure (Trend)
+        # Calculate 20-day rolling vol
+        rolling_vol = returns.rolling(20).std() * np.sqrt(252)
+        recent_vol = rolling_vol.iloc[-20:]
+        
+        vol_slope = 0
+        if len(recent_vol) > 10:
+            # Simple linear regression on last 20 days vol
+            y = recent_vol.values
+            x = np.arange(len(y))
+            # Slope
+            fit = np.polyfit(x, y, 1)
+            vol_slope = fit[0]
+            
+        vol_trend = "Stable"
+        if vol_slope > 0.001: vol_trend = "Rising"
+        elif vol_slope < -0.001: vol_trend = "Falling"
+        
+        # 4. Market Breadth (Mocked/Simplified for now, or real iteration)
+        # For now, let's return a placeholder or calculate if it's SPY
+        breadth = {}
+        if symbol in ['SPY', '^GSPC', 'QQQ', 'IWM']:
+             breadth = self._get_market_breadth_cached()
+
+        if hasattr(overview, "regime"):
+            r_label = overview.regime
+        elif isinstance(overview, dict):
+            r_label = overview.get("regime", "Unknown")
+        else:
+            r_label = "Unknown"
+
+        return {
+            "symbol": symbol,
+            "regime": r_label,
+            "regime_duration_days": duration,
+            "volatility_trend": vol_trend,
+            "transition_matrix": trans_matrix,
+            "breadth": breadth
+        }
+
+    def _get_market_breadth_cached(self):
+        """
+        Calculate breadth metrics: % Above SMA50, % Uptrend.
+        Uses a simple in-memory or file check for cache (1h TTL).
+        """
+
+        # 1. Simple file cache mechanism
+        cache_path = Path(settings.DATA_CACHE_DIR) / "market_breadth.json"
+        
+        if cache_path.exists():
+             try:
+                 import json
+                 with open(cache_path, 'r') as f:
+                     data = json.load(f)
+                 # Check age
+                 last_ts = data.get('timestamp', 0)
+                 if datetime.now().timestamp() - last_ts < 3600: # 1 hour
+                     return data['metrics']
+             except: pass
+             
+        # 2. Compute Breadth (Iterate Watchlist + Mega Caps)
+        # We need a list of symbols. 
+        from src.core.database import get_watchlist
+        symbols = get_watchlist()
+        if not symbols: symbols = settings.MEGA_CAP_COMPONENTS
+        
+        above_50 = 0
+        uptrend = 0
+        total = 0
+        
+        hmm = RegimeDetector()
+        
+        for sym in symbols:
+            try:
+                df = self.loader.get_data(sym, use_cache=True)
+                if df.empty or len(df) < 55: continue
+                
+                price = df['Close'].iloc[-1]
+                sma50 = df['Close'].rolling(50).mean().iloc[-1]
+                
+                if price > sma50: above_50 += 1
+                
+                # Fast Uptrend Check (Simple Returns > 0 over last 20 days? or HMM?)
+                # HMM is too slow for 50+ symbols in real-time. 
+                # Use simple 20d slope or returns
+                ret_20 = df['Close'].pct_change(20).iloc[-1]
+                if ret_20 > 0: uptrend += 1
+                
+                total += 1
+            except: pass
+            
+        if total == 0: return {}
+        
+        metrics = {
+            "percent_above_sma_50": round((above_50 / total) * 100, 1),
+            "percent_uptrend_20d": round((uptrend / total) * 100, 1),
+            "total_symbols": total,
+            "agreement": "Strong" if (above_50/total > 0.6) else "Weak"
+        }
+        
+        # Save Cache
+        try:
+            with open(cache_path, 'w') as f:
+                json.dump({"timestamp": datetime.now().timestamp(), "metrics": metrics}, f)
+        except: pass
+        
+        return metrics
 
     def get_available_dates(self) -> Dict[str, List[str]]:
         dates = []

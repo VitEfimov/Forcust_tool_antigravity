@@ -5,20 +5,24 @@ import {
     AreaChart, Area
 } from 'recharts';
 import './Analytics.css'; // We will create this as well
+import AdvancedAnalytics from './AdvancedAnalytics';
 
 const Analytics = () => {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [selectedSnapshot, setSelectedSnapshot] = useState(null);
+    const [selectedDetailedSymbol, setSelectedDetailedSymbol] = useState(null);
 
     useEffect(() => {
         fetchHistory();
     }, []);
 
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
     const fetchHistory = async () => {
         try {
-            const response = await axios.get('http://localhost:8000/market/history?limit=30');
+            const response = await axios.get(`${API_URL}/market/history?limit=30`);
             const data = response.data.history || [];
 
             // Process data for charts
@@ -64,7 +68,8 @@ const Analytics = () => {
             setLoading(false);
         } catch (err) {
             console.error("Failed to fetch history:", err);
-            setError("Failed to load market history.");
+            const msg = err.response?.data?.detail || err.message || "Failed to load market history.";
+            setError(`Error: ${msg}`);
             setLoading(false);
         }
     };
@@ -147,8 +152,8 @@ const Analytics = () => {
                             </thead>
                             <tbody>
                                 {selectedSnapshot.rawOverview.map((stock, idx) => (
-                                    <tr key={idx}>
-                                        <td className="font-bold">{stock.symbol}</td>
+                                    <tr key={idx} className="analytics-row" onClick={() => setSelectedDetailedSymbol(stock.symbol)}>
+                                        <td className="font-bold symbol-cell">{stock.symbol} 🔍</td>
                                         <td>${stock.price?.toFixed(2)}</td>
                                         <td className={stock.change_pct >= 0 ? 'text-green' : 'text-red'}>
                                             {stock.change_pct > 0 ? '+' : ''}{stock.change_pct}%
@@ -177,7 +182,19 @@ const Analytics = () => {
                     </div>
                 )}
             </div>
-        </div>
+
+            {/* Advanced Analytics Overlay/Modal */}
+            {
+                selectedDetailedSymbol && (
+                    <div className="analytics-overlay">
+                        <AdvancedAnalytics
+                            symbol={selectedDetailedSymbol}
+                            onClose={() => setSelectedDetailedSymbol(null)}
+                        />
+                    </div>
+                )
+            }
+        </div >
     );
 };
 

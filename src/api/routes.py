@@ -230,6 +230,26 @@ def get_watchlist_overview():
         print(f"Error in watchlist overview: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/analytics/advanced/{symbol}")
+def get_advanced_analytics(symbol: str):
+    """
+    Get High-Value Analytics: 
+    - Regime Duration
+    - Transition Matrix
+    - Volatility Structure
+    - Market Breadth (for Indices)
+    """
+    try:
+        from src.services.logic import MarketService
+        service = MarketService()
+        data = service.get_detailed_analytics(symbol.upper())
+        if not data:
+            raise HTTPException(status_code=404, detail="Data not found for symbol")
+        return data
+    except Exception as e:
+        print(f"Error in advanced analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/market/history")
 def get_market_overview_history(limit: int = 5):
     """

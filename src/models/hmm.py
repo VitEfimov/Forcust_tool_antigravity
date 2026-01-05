@@ -3,6 +3,7 @@ import pandas as pd
 from hmmlearn.hmm import GaussianHMM
 import joblib
 import os
+from typing import Dict
 
 class RegimeDetector:
     def __init__(self, n_components: int = 2, n_iter: int = 100):
@@ -87,6 +88,32 @@ class RegimeDetector:
         X = returns.values.reshape(-1, 1)
         X = np.nan_to_num(X)
         return self.model.predict_proba(X)
+
+    def get_transition_matrix(self) -> Dict[str, Dict[str, float]]:
+        """
+        Return the transition matrix with human-readable labels.
+        Format: {FromState: {ToState: Prob, ...}, ...}
+        """
+        if not self.is_fitted:
+            return {}
+            
+        transmat = self.model.transmat_
+        n_states = self.n_components
+        result = {}
+        
+        for i in range(n_states):
+            from_label = self.get_regime_label(i)
+            # Handle duplicate labels if any (though get_regime_label handles well)
+            if from_label not in result:
+                result[from_label] = {}
+            
+            for j in range(n_states):
+                to_label = self.get_regime_label(j)
+                # Sum probabilities if mapping multiple internal states to same label
+                current_prob = result[from_label].get(to_label, 0.0)
+                result[from_label][to_label] = current_prob + float(transmat[i][j])
+                
+        return result
 
     def save(self, path: str):
         joblib.dump({'model': self.model, 'sorted_indices': getattr(self, 'sorted_indices', None)}, path)
