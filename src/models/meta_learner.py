@@ -22,9 +22,9 @@ class MetaLearner:
             learning_rate=0.05,
             max_depth=5,
             objective="binary", 
-            device_type="gpu",
-            gpu_platform_id=0,
-            gpu_device_id=0,
+            device_type="cpu",
+            # gpu_platform_id=0,
+            # gpu_device_id=0,
             verbose=-1
         )
         self.is_fitted = False
@@ -99,6 +99,14 @@ class MetaLearner:
         y = df['Target_Class']
 
         # 6. Align (remove NaNs from shifting / rolling)
+        if self.verbose:
+            self.log_func(f"DEBUG ALIGN: X_shape={X.shape} y_shape={y.shape}")
+            self.log_func(f"DEBUG ALIGN: X_nan={X.isna().sum().sum()} y_nan={y.isna().sum()}")
+            if not X.empty:
+                self.log_func(f"DEBUG ALIGN: X_dates={X.index.min()} to {X.index.max()}")
+            if not y.empty:
+                self.log_func(f"DEBUG ALIGN: y_dates={y.index.min()} to {y.index.max()}")
+
         valid_idx = X.dropna().index.intersection(y.dropna().index)
         X = X.loc[valid_idx]
         y = y.loc[valid_idx]

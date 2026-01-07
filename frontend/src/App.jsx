@@ -9,6 +9,7 @@ import './App.css';
 import { LogProvider } from './context/LogContext';
 import LogConsole from './components/LogConsole';
 import Analytics from './components/Analytics';
+import Watchlist from './components/Watchlist';
 
 function App() {
   const [view, setView] = useState('models'); // Default to System Status
@@ -23,6 +24,7 @@ function App() {
           <a href="#" onClick={() => setView('simulation-v2')}>Advanced Simulation</a>
           <a href="#" onClick={() => setView('training')}>ML Training</a>
           <a href="#" onClick={() => setView('analytics')}>Analytics</a>
+          <a href="#" onClick={() => setView('wishlist')}>Wishlist</a>
         </div>
 
         <div className="content">
@@ -32,6 +34,7 @@ function App() {
           {view === 'simulation-v2' && <AdvancedSimulationV2 />}
           {view === 'training' && <ModelTraining />}
           {view === 'analytics' && <Analytics />}
+          {view === 'wishlist' && <Watchlist />}
         </div>
 
         <LogConsole />

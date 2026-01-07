@@ -32,9 +32,10 @@ const ModelStatus = () => {
             try {
                 const config = { timeout: 120000 };
                 // Fetch Status
+                const ts = Date.now();
                 const [statusRes, heartbeatsRes] = await Promise.all([
-                    axios.get(`${API_URL}/system/status`, config),
-                    axios.get(`${API_URL}/system/heartbeats?limit=50`, config)
+                    axios.get(`${API_URL}/system/status?t=${ts}`, config),
+                    axios.get(`${API_URL}/system/heartbeats?limit=50&t=${ts}`, config)
                 ]);
 
                 const events = heartbeatsRes.data.events || [];
@@ -47,7 +48,17 @@ const ModelStatus = () => {
                 setStatus({ ...statusRes.data, tasks: events, activeTasks: activeTasks });
 
                 // Check active state using the LATEST map, not history
-                isRunning = activeTasks.some(t => t.status?.toLowerCase().includes('running'));
+                // Filter out stale tasks (older than 15 mins) to prevent UI lockup
+                const now = new Date();
+                isRunning = activeTasks.some(t => {
+                    if (!t.status?.toLowerCase().includes('running')) return false;
+                    try {
+                        const taskTime = new Date(t.timestamp);
+                        // If task started > 15 mins ago, assume it's stale/crashed
+                        const diffMins = (now - taskTime) / 60000;
+                        return diffMins < 15;
+                    } catch (e) { return true; } // Safety
+                });
 
                 // Conditional Log Polling
                 // ONLY fetch logs in the loop if we are ACTIVELY running a simulation.
@@ -125,6 +136,21 @@ const ModelStatus = () => {
                         style={{ background: '#00d4ff', border: 'none', borderRadius: '4px', padding: '0.5rem 1rem', cursor: 'pointer', fontWeight: 'bold' }}
                     >
                         ▶ Run All Simulations
+                    </button>
+                    <button
+                        onClick={async () => {
+                            if (confirm("FORCE UNLOCK: Are you sure? Only use this if the system is stuck in 'Busy' state but nothing is running.")) {
+                                try {
+                                    const res = await axios.post(`${API_URL}/system/unlock`);
+                                    alert(res.data.message);
+                                    window.location.reload();
+                                }
+                                catch (e) { alert("Error: " + e.message); }
+                            }
+                        }}
+                        style={{ background: '#ff4444', border: 'none', borderRadius: '4px', padding: '0.5rem 1rem', cursor: 'pointer', fontWeight: 'bold', color: 'white' }}
+                    >
+                        🔓 Force Unlock
                     </button>
                     <div style={{ background: '#111', padding: '0.5rem 1rem', borderRadius: '4px', color: '#888' }}>
                         Last Updated: {new Date().toLocaleTimeString()}

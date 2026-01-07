@@ -15,6 +15,8 @@ const OverviewTable = ({ data }) => {
                         <th style={{ padding: '0.8rem', textAlign: 'right' }}>Change</th>
                         <th style={{ padding: '0.8rem', textAlign: 'right' }}>Change %</th>
                         <th style={{ padding: '0.8rem', textAlign: 'center' }}>Signal</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'center' }}>Regime</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'center' }}>Risk</th>
                         <th style={{ padding: '0.8rem', textAlign: 'right' }}>10d</th>
                         <th style={{ padding: '0.8rem', textAlign: 'right' }}>30d</th>
                         <th style={{ padding: '0.8rem', textAlign: 'right' }}>100d</th>
@@ -56,6 +58,12 @@ const OverviewTable = ({ data }) => {
                                 }}>
                                     {item.signal || 'neutral'}
                                 </span>
+                            </td>
+                            <td style={{ padding: '0.8rem', textAlign: 'center', fontWeight: 'bold', color: item.regime === 'Uptrend' ? '#66ff66' : item.regime === 'Downtrend' ? '#ff6666' : '#aaa' }}>
+                                {item.regime}
+                            </td>
+                            <td style={{ padding: '0.8rem', textAlign: 'center', color: '#ccc' }}>
+                                {item.risk_label}
                             </td>
                             <td style={{ padding: '0.8rem', textAlign: 'right' }}>
                                 {item.forecast_10d_pct != null ? `${item.forecast_10d_pct > 0 ? '+' : ''}${item.forecast_10d_pct.toFixed(2)}%` : '-'}

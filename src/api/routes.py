@@ -268,12 +268,50 @@ def get_user_watchlist():
     """Get all symbols in watchlist."""
     return {"symbols": get_watchlist()}
 
+@router.post("/system/unlock")
+def force_unlock_system():
+    """Force clear any stale task locks."""
+    monitor.force_clear_locks()
+    return {"status": "success", "message": "System locks cleared. You may proceed."}
+
 @router.post("/watchlist/{symbol}")
 def add_watchlist_item(symbol: str):
-    """Add a symbol to watchlist."""
+    """Add a symbol to watchlist limit 100."""
     try:
-        add_to_watchlist(symbol.upper())
-        return {"status": "success", "symbol": symbol.upper()}
+        sym = symbol.upper()
+        add_to_watchlist(sym)
+        
+        # --- NEW: Immediate Snapshot Update ---
+        try:
+            from src.core.database import get_db, get_market_overview_logic
+            db = get_db()
+            
+            # 1. Fetch Symbol Data
+            res = get_market_overview_logic([sym])
+            new_item = res.get("overview", [])[0] if res.get("overview") else None
+            
+            if new_item:
+                history = db.get_market_overview_history(limit=1)
+                if history:
+                    latest_doc = history[0]
+                    current_list = latest_doc.get("data", {}).get("overview", [])
+                    # Support legacy json_data if needed
+                    if not current_list and "json_data" in latest_doc:
+                         import json
+                         current_list = json.loads(latest_doc["json_data"]).get("overview", [])
+
+                    exists = any(i['symbol'] == sym for i in current_list)
+                    if not exists:
+                        new_item['regime'] = "Scanning..." 
+                        new_item['risk_label'] = "Analyzing..."
+                        new_item['volatility_outlook'] = "Wait for Daily Run"
+                        current_list.append(new_item)
+                        
+                        db.save_market_overview({"overview": current_list})
+        except Exception:
+            pass # Non-critical
+            
+        return {"status": "success", "symbol": sym}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -284,6 +322,75 @@ def remove_watchlist_item(symbol: str):
         remove_from_watchlist(symbol.upper())
         return {"status": "success", "symbol": symbol.upper()}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/watchlist/overview")
+def get_watchlist_overview():
+    """Get analytics overview for watchlist items."""
+    try:
+        symbols = get_watchlist()
+        if not symbols:
+            return {"overview": []}
+            
+        from src.core.database import get_db
+        db = get_db()
+        
+        # 1. Get Live Prices/Regime (using logic or snapshot)
+        history = db.get_market_overview_history(limit=1)
+        snapshot_map = {}
+        if history:
+            latest = history[0]
+            items = latest.get("data", {}).get("overview", [])
+            # fallback
+            if not items and "json_data" in latest:
+                 import json
+                 items = json.loads(latest["json_data"]).get("overview", [])
+            
+            for item in items:
+                snapshot_map[item['symbol']] = item
+
+        # 2. Get Forecasts from DB
+        overview = []
+        for sym in symbols:
+            # Base data from snapshot or default
+            item = snapshot_map.get(sym, {"symbol": sym, "price": 0.0, "change_pct": 0.0, "regime": "Waiting..."})
+            
+            # Enrich with DB Forecasts
+            forecasts = db.get_history(sym) # Returns list of dicts
+            latest_forecasts = {}
+            if forecasts:
+                for f in forecasts:
+                    h = f.get('horizon')
+                    if h and h not in latest_forecasts:
+                        latest_forecasts[h] = f
+            
+            # Form Response Object
+            out = {
+                "symbol": sym,
+                "price": item.get("price"),
+                "change": 0.0, 
+                "change_pct": item.get("change_pct"),
+                "signal": "bullish" if (item.get("change_pct") or 0) > 0 else "bearish",
+                "regime": item.get("regime", "Unknown"),
+                "risk_label": item.get("risk_label", "-"),
+                "volatility_outlook": item.get("volatility_outlook", "-")
+            }
+            
+            # Map Forecasts
+            for h in [10, 30, 100, 365, 547, 730]:
+                if h in latest_forecasts:
+                    pred = latest_forecasts[h].get('prediction')
+                    start_p = latest_forecasts[h].get('start_price')
+                    if pred and start_p:
+                        pct = (pred - start_p) / start_p * 100
+                        out[f"forecast_{h}d_pct"] = pct
+                        
+            overview.append(out)
+            
+        return {"overview": overview}
+
+    except Exception as e:
+        print(f"Watchlist Overview Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @timed_cache(refresh_hours=[10, 12, 14, 16])

@@ -449,9 +449,11 @@ def run_daily_automation():
         # Adding others: Configured Targets
         standard_targets = settings.TRAINING_TARGETS.copy()
         
-        # Add Top Watchlist if missing
-        if watchlist and watchlist[0] not in standard_targets and watchlist[0] != 'SPY':
-             standard_targets.append(watchlist[0])
+        # Add ALL Watchlist items to targets
+        if watchlist:
+            for sym in watchlist:
+                if sym not in standard_targets and sym != 'SPY':
+                    standard_targets.append(sym)
              
         for sym in standard_targets:
             # Default Daily Config 
@@ -667,6 +669,49 @@ def run_daily_automation():
             
         except Exception as e:
             logger.error(f"Failed to save market summary: {e}")
+
+        # --- NEW: Save Detailed Market Snapshot for Analytics ---
+        try:
+            full_snapshot = []
+            # Gather all relevant symbols
+            snapshot_symbols = sorted(list(set(standard_targets + MACRO_SYMBOLS + ["^MEGACAP"])))
+            
+            for sym in snapshot_symbols:
+                try:
+                    df = loader.get_data(sym)
+                    if df.empty: continue
+                    
+                    # Basic Stats
+                    price = float(df['Close'].iloc[-1])
+                    prev = float(df['Close'].iloc[-2]) if len(df) > 1 else price
+                    change_pct = (price - prev) / prev * 100
+                    
+                    # Regime/Vol (Simplified for snapshot if not in deep analysis)
+                    sma20 = df['Close'].tail(20).mean()
+                    regime = "Uptrend" if price > sma20 else "Downtrend"
+                    
+                    # Volatility 30d
+                    rets = df['Close'].pct_change().tail(30).dropna()
+                    vol = rets.std() * np.sqrt(252) * 100
+                    risk = "Moderate"
+                    if vol > 30: risk = "High Volatility"
+                    elif vol < 12: risk = "Low Volatility"
+                    
+                    full_snapshot.append({
+                        "symbol": sym,
+                        "price": round(price, 2),
+                        "change_pct": round(change_pct, 2),
+                        "regime": regime,
+                        "risk_label": risk,
+                        "volatility_outlook": "Stable" if risk == "Low Volatility" else "Unstable"
+                    })
+                except: pass
+                
+            get_db().save_market_overview({"overview": full_snapshot})
+            print(f"[DB] Saved Analytics Snapshot ({len(full_snapshot)} symbols).")
+            
+        except Exception as e:
+            logger.error(f"Failed to save snapshot: {e}")
             
         # Cleanup Old Reports
         cleanup_reports(14)

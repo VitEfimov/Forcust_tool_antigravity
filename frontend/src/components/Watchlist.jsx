@@ -72,7 +72,7 @@ const Watchlist = () => {
     return (
         <div className="watchlist-page">
             <div className="overview-header">
-                <h2>My Custom Watchlist</h2>
+                <h2>My Custom Wishlist</h2>
                 <div className="watchlist-controls">
                     <form onSubmit={handleAdd} className="add-form">
                         <input
@@ -107,7 +107,7 @@ const Watchlist = () => {
             {loading ? <p>Loading data for your watchlist...</p> : (
                 <>
                     {symbols.length === 0 ? (
-                        <p>Your watchlist is empty. Add symbols above to track them.</p>
+                        <p>Your wishlist is empty. Add symbols above to track them.</p>
                     ) : (
                         <OverviewTable data={overview} />
                     )}
