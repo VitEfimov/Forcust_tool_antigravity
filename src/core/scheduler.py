@@ -18,7 +18,10 @@ def wakeup_server():
     Ensure the API is awake before running heavy background jobs.
     Retries up to 5 times (5 minutes).
     """
-    url = "https://forcust-tool-antigravity.vercel.app/"
+    url = settings.BACKEND_URL
+    if "localhost" in url or "127.0.0.1" in url:
+        print("[SCHEDULER] Running Locally. Wakeup check skipped.")
+        return True
     logger_print = print # Simple print for scheduler
     
     logger_print("[SCHEDULER] Wakeup check initiated...")
@@ -45,7 +48,7 @@ def wrapped_market_overview():
 
 def wrapped_daily_automation():
     if wakeup_server():
-        run_daily_automation()
+        run_daily_automation(scheduled_run=True)
     else:
         monitor.log_heartbeat("DailyAutomation", "skipped", {"reason": "Server wakeup failed"})
 

@@ -407,9 +407,10 @@ def keep_alive_pinger(stop_event):
             break
     logger.info("[KeepAlive] Stopped.")
 
-def run_daily_automation():
+def run_daily_automation(scheduled_run: bool = False):
     start_time = time.time()
-    print("=== STARTING DAILY AUTOMATION (SECTION 2 SPEC) ===")
+    run_type = "SCHEDULED" if scheduled_run else "MANUAL"
+    print(f"=== STARTING DAILY AUTOMATION ({run_type} RUN) ===")
     
     # Start Keep-Alive Thread
     stop_ping = threading.Event()
@@ -417,7 +418,7 @@ def run_daily_automation():
     ping_thread.start()
     
     try:
-        monitor.log_heartbeat("DailyAutomation", "running", {"step": "start"})
+        monitor.log_heartbeat("DailyAutomation", "running", {"step": "start", "run_type": "scheduled" if scheduled_run else "manual"})
         
         # 0. Check for Stop Signal
         if task_controller.should_stop("DailyAutomation", consume=True):

@@ -1,8 +1,8 @@
 import pandas as pd
 import numpy as np
-from ta.trend import MACD, SMAIndicator
-from ta.momentum import RSIIndicator
-from ta.volatility import BollingerBands
+from ta.trend import MACD, SMAIndicator # type: ignore
+from ta.momentum import RSIIndicator # type: ignore
+from ta.volatility import BollingerBands # type: ignore
 
 def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """

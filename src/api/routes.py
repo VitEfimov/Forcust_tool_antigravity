@@ -1188,7 +1188,9 @@ def get_system_status():
 def get_system_logs():
     """Return the content of the latest Daily Report."""
     try:
-        daily_report_dir = Path(settings.LOCAL_DATA_DIR) / "daily_reports"
+        # daily_report_dir = Path(settings.LOCAL_DATA_DIR) / "daily_reports"
+        # Fix: daily_run.py writes to project_root / "data" / "daily_reports"
+        daily_report_dir = Path("data/daily_reports")
         if not daily_report_dir.exists():
             return {"content": "No reports directory found."}
             
@@ -1213,7 +1215,7 @@ def get_system_heartbeats(limit: int = 50):
 async def trigger_daily_run(background_tasks: BackgroundTasks, _=Depends(check_busy)):
     """Manually trigger the daily intelligence briefing."""
     # Run in background to not block API
-    background_tasks.add_task(run_daily_automation)
+    background_tasks.add_task(run_daily_automation, scheduled_run=False)
     return {"status": "accepted", "message": "Daily Analysis started in background."}
 
 @router.post("/system/control/stop/{task_name}")

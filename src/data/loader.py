@@ -34,8 +34,13 @@ class DataLoader:
         if use_cache:
             df = self.cache.load(symbol)
             if df is not None:
-                print(f"Loaded {symbol} from cache.")
+                # print(f"Loaded {symbol} from cache.")
                 return df
+
+        # Prevent fetching synthetic/local-only symbols from Yahoo
+        if symbol in ['^MEGACAP']:
+            print(f"Skipping external fetch for local synthetic symbol: {symbol}")
+            return pd.DataFrame()
 
         print(f"Fetching {symbol} from yfinance...")
         try:

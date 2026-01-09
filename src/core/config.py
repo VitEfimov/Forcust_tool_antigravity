@@ -21,7 +21,11 @@ class Settings:
     # Database check
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///data/forecasts.db")
     STORAGE_TYPE: str = os.getenv("STORAGE_TYPE", "sqlite") # sqlite, mongo, excel
+
     LOCAL_DATA_DIR: str = os.getenv("LOCAL_DATA_DIR", "data/local")
+    
+    # Deployment URL (for self-wakeup)
+    BACKEND_URL: str = os.getenv("BACKEND_URL", "https://forcust-tool-antigravity.onrender.com")
 
     # Feature Tiers (Free Tier Optimization)
     TIER_1_INDICES: list = ['^GSPC', '^VIX', '^TNX', 'DX-Y.NYB', 'CL=F']
