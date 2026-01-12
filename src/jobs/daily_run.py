@@ -443,6 +443,8 @@ def run_daily_automation(scheduled_run: bool = False):
             # Optimization: Reduced window from 2000 to 1000 for 512MB RAM limit
             # NOTE: step=30 reduces total folds from ~1300 to ~220, preventing timeouts.
             {"symbol": "SPY", "horizon": 200, "train_window": 1000, "step": 30, "meta": True},
+            # SPY Walk-Forward 4
+            {"symbol": "SPY", "horizon": 365, "train_window": 1000, "step": 30, "meta": True},
         ]
         
         # 2. V2 Simulation Targets (Default Daily Config: Horizon 10)
@@ -460,6 +462,10 @@ def run_daily_automation(scheduled_run: bool = False):
             # Default Daily Config 
             ANALYSIS_CONFIGS.append({
                 "symbol": sym, "horizon": 10, "train_window": 730, "step": 30, "meta": True
+            })
+            # Added 365d Horizon (User Request)
+            ANALYSIS_CONFIGS.append({
+                "symbol": sym, "horizon": 365, "train_window": 730, "step": 30, "meta": True
             })
 
         # Run Analysis Loop

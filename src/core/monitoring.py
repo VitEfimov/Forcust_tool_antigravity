@@ -165,7 +165,7 @@ class SystemMonitor:
                         # Actually simple logic: ANY task 'running' when we just booted up is likely stale/interrupted.
                         # Because we claim to be "SystemStartup".
                         
-                        self.log_heartbeat(task, "interrupted", {"reason": "System Restart Detected"})
+                        self.log_heartbeat(task, "interrupted", {"reason": "System Restart Detected", "stale_timestamp": ts_str})
                         print(f"[MONITOR] Marked stale task '{task}' as INTERRUPTED.")
                         
                     except Exception as e:

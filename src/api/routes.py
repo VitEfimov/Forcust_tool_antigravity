@@ -214,21 +214,7 @@ def get_market_overview():
         print(f"Error in market overview: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/watchlist/overview")
-def get_watchlist_overview():
-    """
-    Get market overview for the user's watchlist.
-    Cached and refreshes at 10am, 12pm, 2pm, 4pm.
-    """
-    try:
-        symbols = get_watchlist()
-        if not symbols:
-            return {"overview": []}
-        # Convert to tuple for hashability in cache key
-        return _cached_watchlist_overview(tuple(sorted(symbols)))
-    except Exception as e:
-        print(f"Error in watchlist overview: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/analytics/advanced/{symbol}")
 def get_advanced_analytics(symbol: str):
@@ -326,68 +312,46 @@ def remove_watchlist_item(symbol: str):
 
 @router.get("/watchlist/overview")
 def get_watchlist_overview():
-    """Get analytics overview for watchlist items."""
+    """
+    Get market overview for the user's watchlist.
+    Combines Analytical Forecasts (Fallback) with ML Forecasts (DB) to ensure high coverage.
+    """
     try:
         symbols = get_watchlist()
         if not symbols:
             return {"overview": []}
-            
+        
+        # 1. Get Analytical Overview (Fast, Cached, includes Simple Forecasts)
+        # This acts as the baseline/fallback for when DB doesn't have advanced ML models ready
+        base_overview = _cached_watchlist_overview(tuple(sorted(symbols)))
+        overview_list = base_overview.get("overview", [])
+        
+        # 2. Get High-Quality ML Forecasts from DB
         from src.core.database import get_db
         db = get_db()
         
-        # 1. Get Live Prices/Regime (using logic or snapshot)
-        history = db.get_market_overview_history(limit=1)
-        snapshot_map = {}
-        if history:
-            latest = history[0]
-            items = latest.get("data", {}).get("overview", [])
-            # fallback
-            if not items and "json_data" in latest:
-                 import json
-                 items = json.loads(latest["json_data"]).get("overview", [])
+        final_overview = []
+        for item in overview_list:
+            sym = item['symbol']
             
-            for item in items:
-                snapshot_map[item['symbol']] = item
-
-        # 2. Get Forecasts from DB
-        overview = []
-        for sym in symbols:
-            # Base data from snapshot or default
-            item = snapshot_map.get(sym, {"symbol": sym, "price": 0.0, "change_pct": 0.0, "regime": "Waiting..."})
+            # Fetch DB forecasts (returns list of dicts)
+            forecasts = db.get_history(sym)
             
-            # Enrich with DB Forecasts
-            forecasts = db.get_history(sym) # Returns list of dicts
-            latest_forecasts = {}
+            # Overlay DB forecasts onto Analytical ones if available
+            # we overwrite the defaults from step 1 with better ML models from DB
             if forecasts:
                 for f in forecasts:
                     h = f.get('horizon')
-                    if h and h not in latest_forecasts:
-                        latest_forecasts[h] = f
-            
-            # Form Response Object
-            out = {
-                "symbol": sym,
-                "price": item.get("price"),
-                "change": 0.0, 
-                "change_pct": item.get("change_pct"),
-                "signal": "bullish" if (item.get("change_pct") or 0) > 0 else "bearish",
-                "regime": item.get("regime", "Unknown"),
-                "risk_label": item.get("risk_label", "-"),
-                "volatility_outlook": item.get("volatility_outlook", "-")
-            }
-            
-            # Map Forecasts
-            for h in [10, 30, 100, 365, 547, 730]:
-                if h in latest_forecasts:
-                    pred = latest_forecasts[h].get('prediction')
-                    start_p = latest_forecasts[h].get('start_price')
-                    if pred and start_p:
-                        pct = (pred - start_p) / start_p * 100
-                        out[f"forecast_{h}d_pct"] = pct
+                    pred = f.get('prediction')
+                    start_p = f.get('start_price')
+                    
+                    if h and pred is not None and start_p and start_p > 0:
+                        ml_pct = (pred - start_p) / start_p * 100
+                        item[f"forecast_{h}d_pct"] = round(ml_pct, 2)
                         
-            overview.append(out)
+            final_overview.append(item)
             
-        return {"overview": overview}
+        return {"overview": final_overview}
 
     except Exception as e:
         print(f"Watchlist Overview Error: {e}")
