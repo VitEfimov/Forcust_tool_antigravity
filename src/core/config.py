@@ -27,13 +27,28 @@ class Settings:
     # Deployment URL (for self-wakeup)
     BACKEND_URL: str = os.getenv("BACKEND_URL", "https://forcust-tool-antigravity.onrender.com")
 
-    # Feature Tiers (Free Tier Optimization)
+    # Feature Tiers (Free Tier Optimization) 
     TIER_1_INDICES: list = ['^GSPC', '^VIX', '^TNX', 'DX-Y.NYB', 'CL=F']
     TIER_2_INDICES: list = ['^IXIC', '^RUT', 'GC=F']
     TIER_3_INDICES: list = ['^VVIX', '^SKEW', 'HYG', 'LQD'] # Advanced Risk Metrics
-    MEGA_CAP_COMPONENTS: list = ['AAPL', 'MSFT', 'AMZN', 'GOOGL', 'NVDA', 'META', 'BRK-B', 'JPM', 'JNJ', 'TSLA']
+    MEGA_CAP_COMPONENTS: list = [
+        'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'NVDA', 'META', 'BRK-B', 'JPM', 'JNJ', 'TSLA', 
+        'UNH', 'LLY', 'V', 'XOM', 'MA', 'PG', 'HD', 'COST', 'AVGO', 'CVX', 
+        'MRK', 'ABBV', 'PEP', 'KO', 'BAC', 'ADBE', 'WMT', 'MCD', 'CSCO', 'CRM', 
+        'ACN', 'TMO', 'LIN', 'AMD', 'NFLX', 'ABT', 'DHR', 'ORCL', 'CMCSA', 'DIS', 
+        'WFC', 'TXN', 'VZ', 'NEE', 'PM', 'UPS', 'NKE', 'INTC', 'RTX', 'MS'
+    ]
     
     # Training Config
-    TRAINING_TARGETS: list = ['^IXIC', 'AAPL', 'NVDA', 'SPCE']
+    TRAINING_TARGETS: list = sorted(list(set(
+        ['^IXIC', 'SPCE'] + [
+        'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'NVDA', 'META', 'BRK-B', 'JPM', 'JNJ', 'TSLA', 
+        'UNH', 'LLY', 'V', 'XOM', 'MA', 'PG', 'HD', 'COST', 'AVGO', 'CVX', 
+        'MRK', 'ABBV', 'PEP', 'KO', 'BAC', 'ADBE', 'WMT', 'MCD', 'CSCO', 'CRM', 
+        'ACN', 'TMO', 'LIN', 'AMD', 'NFLX', 'ABT', 'DHR', 'ORCL', 'CMCSA', 'DIS', 
+        'WFC', 'TXN', 'VZ', 'NEE', 'PM', 'UPS', 'NKE', 'INTC', 'RTX', 'MS'
+    ]
+    )))
+
 
 settings = Settings()

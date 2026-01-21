@@ -41,13 +41,9 @@ def force_unlock_system(request: Request):
 
 # Top 20 S&P 500 Stocks by market cap (for faster loading)
 # Top 50 S&P 500 Stocks by market cap (approximate selection)
-TOP_SP500 = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B", "UNH", "LLY",
-    "JPM", "V", "XOM", "JNJ", "MA", "PG", "HD", "COST", "AVGO", "CVX",
-    "MRK", "ABBV", "PEP", "KO", "BAC", "ADBE", "WMT", "MCD", "CSCO", "CRM",
-    "ACN", "TMO", "LIN", "AMD", "NFLX", "ABT", "DHR", "ORCL", "CMCSA", "DIS",
-    "WFC", "TXN", "VZ", "NEE", "PM", "UPS", "NKE", "INTC", "RTX", "MS"
-]
+# Top 20 S&P 500 Stocks by market cap (for faster loading)
+# Top 50 S&P 500 Stocks by market cap (approximate selection)
+TOP_SP500 = settings.MEGA_CAP_COMPONENTS
 
 # --- Live Logs Buffer ---
 SIMULATION_LOGS = deque(maxlen=2000)
@@ -175,7 +171,25 @@ def _compute_market_overview(symbols: List[str]) -> dict:
                         # Analytical Median Return
                         projected_pct = (np.exp(drift * h) - 1) * 100
                         item[f'forecast_{h}d_pct'] = round(projected_pct, 2)
-                    
+                
+                # --- v2: OVERWRITE WITH DB FORECASTS IF AVAILABLE ---
+                try:
+                    from src.core.database import get_db
+                    db = get_db()
+                    db_forecasts = db.get_history(symbol)
+                    if db_forecasts:
+                        for f in db_forecasts:
+                            h = f.get('horizon')
+                            pred = f.get('prediction')
+                            start_p = f.get('start_price')
+                            
+                            if h and pred is not None and start_p and start_p > 0:
+                                ml_pct = (pred - start_p) / start_p * 100
+                                item[f"forecast_{h}d_pct"] = round(ml_pct, 2)
+                except Exception as ex:
+                    # Fallback to analytical if DB fails
+                    pass
+
             else:
                 item['risk_label'] = "N/A"
                 item['regime'] = "Unknown"

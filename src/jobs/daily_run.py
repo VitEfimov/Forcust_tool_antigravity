@@ -331,11 +331,17 @@ def generate_report_content(symbol, wf_data, sim_data):
 
     # Regime Logic Fallback
     regime = wf_data.get('regime', 'Unknown')
+    
     if regime == 'Unknown':
         # Simple fallback based on price vs MC
         if mc_upside > 5: regime = 'Bull'
         elif mc_upside < -5: regime = 'Bear'
         else: regime = 'Sideways'
+
+    agreement_icon = "⚪"
+    if "STRONG BUY" in agreement: agreement_icon = "🟢"
+    elif "STRONG SELL" in agreement: agreement_icon = "🔴"
+    elif "NEUTRAL" in agreement: agreement_icon = "🟡"
     
     report = f"""
 ============================================================
@@ -353,7 +359,7 @@ PRICE: {price:.2f}
    - ML Model Target: {ml_target_str} ({ml_upside_str})
    - Monte-Carlo Target: {mc_target_str} ({mc_upside_str})
    - 80% Confidence Range: {range_str}
-   - Agreement Level: {agreement}
+   - Agreement Level: {agreement_icon} {agreement}
 
 3. META-LEARNER (Reliability Layer)
    - Model Reliability Score: {rel_score:.2f} (0=Low, 1=High)
@@ -370,6 +376,62 @@ PRICE: {price:.2f}
 [End of Briefing]
 """
     return report
+
+def generate_overview_table(snapshot_data, forecast_map=None):
+    """
+    Generate a text-based table for the Market Overview.
+    forecast_map: {symbol: {30: pct, 365: pct}}
+    """
+    if not snapshot_data:
+        return "No Market Data Available."
+    
+    if forecast_map is None: forecast_map = {}
+
+    # Sort by Type (Indices first) then Change %
+    # Heuristic: Indices start with ^ or are in MACRO list
+    indices = []
+    stocks = []
+    
+    for item in snapshot_data:
+        sym = item['symbol']
+        if sym.startswith('^') or sym in ['DX-Y.NYB', 'CL=F', 'GC=F']:
+            indices.append(item)
+        else:
+            stocks.append(item)
+            
+    # Sort stocks by abs change (movers)
+    stocks.sort(key=lambda x: abs(x['change_pct']), reverse=True)
+    
+    lines = []
+    lines.append("========================================================================================")
+    lines.append("MARKET OVERVIEW SNAPSHOT")
+    lines.append("========================================================================================")
+    # Header
+    lines.append(f"{'SYMBOL':<10} | {'PRICE':<10} | {'CHANGE':<8} | {'REGIME':<10} | {'VOLATILITY':<15} | {'FCST(30d)':<10} | {'FCST(1y)':<10}")
+    lines.append("-" * 96)
+    
+    for item in indices + stocks:
+        sym = item['symbol']
+        price = f"{item['price']:.2f}"
+        chg = f"{item['change_pct']:+.2f}%"
+        reg = item['regime']
+        vol = item['risk_label']
+        
+        # Get Forecasts
+        f_30 = "N/A"
+        f_365 = "N/A"
+        
+        if sym in forecast_map:
+            if 30 in forecast_map[sym]:
+                val = forecast_map[sym][30]
+                f_30 = f"{val:+.2f}%"
+            if 365 in forecast_map[sym]:
+                val = forecast_map[sym][365]
+                f_365 = f"{val:+.2f}%"
+        
+        lines.append(f"{sym:<10} | {price:<10} | {chg:<8} | {reg:<10} | {vol:<15} | {f_30:<10} | {f_365:<10}")
+        
+    return "\n".join(lines)
 
 def cleanup_reports(days_retention=14):
     """Delete daily reports older than N days."""
@@ -425,6 +487,10 @@ def run_daily_automation(scheduled_run: bool = False):
              monitor.log_heartbeat("DailyAutomation", "cancelled", {"reason": "User requested stop"})
              return
 
+        # Initialize Forecast Map for Report Table
+        # Structure: {symbol: {30: pct, 365: pct}}
+        forecast_map = {}
+
         # 1. Watchlist
         watchlist = get_watchlist()
         
@@ -457,11 +523,20 @@ def run_daily_automation(scheduled_run: bool = False):
             for sym in watchlist:
                 if sym not in standard_targets and sym != 'SPY':
                     standard_targets.append(sym)
+                    
+        # Add MACRO SYMBOLS to targets (Indices need forecasts too)
+        for sym in MACRO_SYMBOLS:
+            if sym not in standard_targets:
+                standard_targets.append(sym)
              
         for sym in standard_targets:
             # Default Daily Config 
             ANALYSIS_CONFIGS.append({
                 "symbol": sym, "horizon": 10, "train_window": 730, "step": 30, "meta": True
+            })
+            # Added 30d Horizon (Requested for Dashboard Column)
+            ANALYSIS_CONFIGS.append({
+                "symbol": sym, "horizon": 30, "train_window": 730, "step": 30, "meta": True
             })
             # Added 365d Horizon (User Request)
             ANALYSIS_CONFIGS.append({
@@ -613,6 +688,16 @@ def run_daily_automation(scheduled_run: bool = False):
                 )
                 db.save_walk_forward_result(wf_result)
                 
+                # --- NEW: Capture Forecast for Report Map ---
+                if horizon in [30, 365]:
+                    if target_symbol not in forecast_map:
+                        forecast_map[target_symbol] = {}
+                    
+                    # Calculate % change
+                    if current_price > 0:
+                        pct_change = (wf_data['ml_forecast_price'] - current_price) / current_price * 100
+                        forecast_map[target_symbol][horizon] = pct_change
+
                 print(f"[DB] Saved intelligent models for {target_symbol} (H={horizon})")
                 
                 monitor.log_heartbeat("DailyAnalysis", "success", {"symbol": target_symbol, "horizon": horizon})
@@ -631,9 +716,61 @@ def run_daily_automation(scheduled_run: bool = False):
         # Combine Reports
         full_report = "\n\n".join(final_reports)
         
+        # Append Market Overview Table if available
+        # (We need to grab the snapshot data - it's generated later in the original code,
+        # but we can move that logic up or just do it twice/cache it. 
+        # Actually, let's just generate the table from the snapshot logic now.)
+        
+        # --- NEW: Save Detailed Market Snapshot for Analytics AND Table ---
+        try:
+            full_snapshot = []
+            # Gather all relevant symbols
+            snapshot_symbols = sorted(list(set(standard_targets + MACRO_SYMBOLS + ["^MEGACAP"])))
+            
+            for sym in snapshot_symbols:
+                try:
+                    df = loader.get_data(sym)
+                    if df.empty: continue
+                    
+                    # Basic Stats
+                    price = float(df['Close'].iloc[-1])
+                    prev = float(df['Close'].iloc[-2]) if len(df) > 1 else price
+                    change_pct = (price - prev) / prev * 100
+                    
+                    # Regime/Vol (Simplified for snapshot if not in deep analysis)
+                    sma20 = df['Close'].tail(20).mean()
+                    regime = "Uptrend" if price > sma20 else "Downtrend"
+                    
+                    # Volatility 30d
+                    rets = df['Close'].pct_change().tail(30).dropna()
+                    vol = rets.std() * np.sqrt(252) * 100
+                    risk = "Moderate"
+                    if vol > 30: risk = "High Volatility"
+                    elif vol < 12: risk = "Low Volatility"
+                    
+                    full_snapshot.append({
+                        "symbol": sym,
+                        "price": round(price, 2),
+                        "change_pct": round(change_pct, 2),
+                        "regime": regime,
+                        "risk_label": risk,
+                        "volatility_outlook": "Stable" if risk == "Low Volatility" else "Unstable"
+                    })
+                except: pass
+                
+            get_db().save_market_overview({"overview": full_snapshot})
+            print(f"[DB] Saved Analytics Snapshot ({len(full_snapshot)} symbols).")
+            
+            # Generate Text Table
+            overview_table = generate_overview_table(full_snapshot, forecast_map)
+            full_report += "\n\n" + overview_table
+            
+        except Exception as e:
+            logger.error(f"Failed to save snapshot: {e}")
+
         # Save Report
         report_file = REPORT_DIR / f"daily_report_{datetime.now().strftime('%Y-%m-%d')}.txt"
-        with open(report_file, "w") as f:
+        with open(report_file, "w", encoding='utf-8') as f:
             f.write(full_report)
             
         print(full_report)
@@ -677,48 +814,11 @@ def run_daily_automation(scheduled_run: bool = False):
         except Exception as e:
             logger.error(f"Failed to save market summary: {e}")
 
-        # --- NEW: Save Detailed Market Snapshot for Analytics ---
-        try:
-            full_snapshot = []
-            # Gather all relevant symbols
-            snapshot_symbols = sorted(list(set(standard_targets + MACRO_SYMBOLS + ["^MEGACAP"])))
-            
-            for sym in snapshot_symbols:
-                try:
-                    df = loader.get_data(sym)
-                    if df.empty: continue
-                    
-                    # Basic Stats
-                    price = float(df['Close'].iloc[-1])
-                    prev = float(df['Close'].iloc[-2]) if len(df) > 1 else price
-                    change_pct = (price - prev) / prev * 100
-                    
-                    # Regime/Vol (Simplified for snapshot if not in deep analysis)
-                    sma20 = df['Close'].tail(20).mean()
-                    regime = "Uptrend" if price > sma20 else "Downtrend"
-                    
-                    # Volatility 30d
-                    rets = df['Close'].pct_change().tail(30).dropna()
-                    vol = rets.std() * np.sqrt(252) * 100
-                    risk = "Moderate"
-                    if vol > 30: risk = "High Volatility"
-                    elif vol < 12: risk = "Low Volatility"
-                    
-                    full_snapshot.append({
-                        "symbol": sym,
-                        "price": round(price, 2),
-                        "change_pct": round(change_pct, 2),
-                        "regime": regime,
-                        "risk_label": risk,
-                        "volatility_outlook": "Stable" if risk == "Low Volatility" else "Unstable"
-                    })
-                except: pass
-                
-            get_db().save_market_overview({"overview": full_snapshot})
-            print(f"[DB] Saved Analytics Snapshot ({len(full_snapshot)} symbols).")
             
         except Exception as e:
             logger.error(f"Failed to save snapshot: {e}")
+            
+        # Snapshot logic moved up to be included in report. Removed duplicate block.
             
         # Cleanup Old Reports
         cleanup_reports(14)
