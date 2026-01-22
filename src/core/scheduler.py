@@ -140,6 +140,10 @@ def start_scheduler():
     # Warning: This runs heavy compute in the same process as the API.
     # Ensure usage of async workers or enough resources.
     
+    if settings.ENV == "production":
+        print("[SCHEDULER] Production Mode Detected. Local Scheduler DISABLED (Delegate to GitHub Actions).")
+        return
+        
     print("[SCHEDULER] Configuring local jobs...")
     
     # 1. Market Overview (10:00 AM and 16:15 PM EST)

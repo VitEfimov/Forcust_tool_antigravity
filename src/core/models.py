@@ -44,6 +44,11 @@ class WalkForwardResult(BaseModel):
     reliability_score: float
     regime_label: str
     
+    # Tiered Training Metadata
+    mode: Optional[str] = "unknown" # train, inference_only, derived
+    trained: Optional[bool] = False
+    derived_from: Optional[int] = None
+    
 class AdvancedSimulationResult(BaseModel):
     """
     Model for Monte Carlo Stress Testing results.

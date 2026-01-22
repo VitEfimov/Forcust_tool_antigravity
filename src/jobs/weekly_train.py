@@ -230,11 +230,26 @@ def main():
     start_time = time.time()
     logger.info("=== STARTING WEEKLY HEAVY TRAINING JOB (SECTION 3) ===")
     
+    # Execution Source Logging
+    source = os.getenv("EXECUTION_SOURCE", "scheduler")
+    if source == "github_actions":
+        logger.info("Execution source: GitHub Actions")
+        print("Execution source: GitHub Actions")
+    
     try:
-        monitor.log_heartbeat("WeeklyTraining", "running", {"step": "start"})
+        monitor.log_heartbeat("WeeklyTraining", "running", {"step": "start", "source": source})
+        
+        # Combine Watchlist + Mega Caps + Main Indices
+        # We use TRAINING_TARGETS from config which already includes Mega Caps + some entries.
+        # We also ensure TIER 1 & 2 Indices are covered for "Main Indexes" coverage.
         
         watchlist = get_watchlist()
-        target_list = sorted(list(set(['SPY', 'QQQ', 'IWM'] + watchlist)))
+        candidates = set(watchlist)
+        candidates.update(settings.TRAINING_TARGETS)
+        candidates.update(settings.TIER_1_INDICES) 
+        candidates.update(settings.TIER_2_INDICES)
+        
+        target_list = sorted(list(candidates))
         
         for sym in target_list:
             train_for_symbol(sym)
@@ -246,13 +261,14 @@ def main():
         duration = time.time() - start_time
         monitor.log_heartbeat("WeeklyTraining", "success", {
             "symbols_trained": len(target_list),
-            "modules": ["LightGBM", "HMM", "Transformer", "MetaLearner"]
+            "modules": ["LightGBM", "HMM", "Transformer", "MetaLearner"],
+            "source": source
         }, duration)
         
     except Exception as e:
         duration = time.time() - start_time
         logger.error(f"Weekly Training Failed: {e}")
-        monitor.log_heartbeat("WeeklyTraining", "error", {"error": str(e)}, duration)
+        monitor.log_heartbeat("WeeklyTraining", "error", {"error": str(e), "source": source}, duration)
 
 if __name__ == "__main__":
     main()

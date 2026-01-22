@@ -21,6 +21,9 @@ class Settings:
     # Database check
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///data/forecasts.db")
     STORAGE_TYPE: str = os.getenv("STORAGE_TYPE", "sqlite") # sqlite, mongo, excel
+    
+    # Environment
+    ENV: str = os.getenv("ENV", "development") # development, production
 
     LOCAL_DATA_DIR: str = os.getenv("LOCAL_DATA_DIR", "data/local")
     
@@ -50,5 +53,33 @@ class Settings:
     ]
     )))
 
+
+    # Free Tier & Training Optimization Config
+    class AnalysisMode:
+        TRAIN = "train"
+        INFERENCE = "inference_only"
+        DERIVED = "derived"
+
+    SYMBOL_TIERS: dict = {
+        "tier_1": ['^GSPC', '^VIX', '^TNX', 'DX-Y.NYB'], # Main Macro
+        "tier_2": ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA', 'SPY', 'QQQ', 'IWM'], # Big Tech + Etfs
+        "tier_3": [] # All others (default)
+    }
+
+    # Horizon Strategy
+    BASE_HORIZONS: list = [10, 100]
+    DERIVED_HORIZONS: dict = {
+        30: 10,
+        60: 10,
+        200: 100,
+        365: 100
+    }
+    
+    # Safety Defaults
+    TRAINING_CONFIG: dict = {
+        "allow_weekly_training": os.getenv("ALLOW_WEEKLY_TRAINING", "false").lower() == "true", 
+        "weekly_training_day": "Sunday",
+        "force_training": os.getenv("FORCE_TRAINING", "false").lower() == "true"
+    }
 
 settings = Settings()

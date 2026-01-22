@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from src.models.hmm import RegimeDetector
-from src.models.forecast import ForecastModel
+from src.models.lightgbm_forecaster import ForecastModel
 
 def test_hmm():
     # Create dummy returns
@@ -26,7 +26,7 @@ def test_forecast_model():
     y = pd.Series(np.random.rand(100))
     
     model = ForecastModel()
-    model.fit(X, y)
+    model.train(X, y)
     
     assert model.model is not None
     

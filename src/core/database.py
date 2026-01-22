@@ -588,15 +588,56 @@ class Database:
         else:
             conn = sqlite3.connect(self.db_path)
             c = conn.cursor()
+            
+            # Ensure columns exist (Migration for SQLite)
+            try:
+                c.execute('ALTER TABLE walk_forward_results ADD COLUMN mode TEXT')
+            except: pass
+            try:
+                c.execute('ALTER TABLE walk_forward_results ADD COLUMN trained BOOLEAN')
+            except: pass
+            try:
+                c.execute('ALTER TABLE walk_forward_results ADD COLUMN derived_from INTEGER')
+            except: pass
+            
             c.execute('''
-                INSERT INTO walk_forward_results (date, symbol, prediction_price, reliability_score, regime_label)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO walk_forward_results (date, symbol, prediction_price, reliability_score, regime_label, mode, trained, derived_from)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 data['date'], data['symbol'], 
-                data['prediction_price'], data['reliability_score'], data['regime_label']
+                data['prediction_price'], data['reliability_score'], data['regime_label'],
+                data.get('mode'), data.get('trained'), data.get('derived_from')
             ))
             conn.commit()
             conn.close()
+
+    def get_latest_walk_forward_result(self, symbol: str, horizon: int = 10):
+        """
+        Get the most recent trained result for a symbol to reuse metadata (e.g. Regime).
+        """
+        if self.is_mongo:
+            # Sort by date desc
+            return self.db.walk_forward_results.find_one(
+                {"symbol": symbol},
+                sort=[("date", -1)]
+            )
+        elif self.is_excel:
+            return None
+        else:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            # We filter by symbol. Ideally valid/recent.
+            c.execute('''
+                SELECT * FROM walk_forward_results 
+                WHERE symbol = ? 
+                ORDER BY date DESC LIMIT 1
+            ''', (symbol,))
+            row = c.fetchone()
+            conn.close()
+            if row:
+                return dict(row)
+            return None
 
 # =============================================================================
 # Helper Functions (module-level exports)

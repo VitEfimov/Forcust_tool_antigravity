@@ -37,7 +37,18 @@ def test_config():
         print(f"FAIL: Mega Caps not in TRAINING_TARGETS: {missing_targets}")
         sys.exit(1)
         
-    print("SUCCESS: Config verified.")
+    # --- NEW: Check Tiered Config ---
+    assert settings.SYMBOL_TIERS, "SYMBOL_TIERS missing"
+    assert "tier_1" in settings.SYMBOL_TIERS
+    assert "tier_2" in settings.SYMBOL_TIERS
+    assert len(settings.BASE_HORIZONS) == 2, "BASE_HORIZONS Check"
+    assert 30 in settings.DERIVED_HORIZONS
+    assert 365 in settings.DERIVED_HORIZONS
+    
+    # Check Safety Defaults
+    assert settings.TRAINING_CONFIG["allow_weekly_training"] == False, "SAFETY FAIL: Weekly training enabled by default"
+        
+    print("SUCCESS: Config verified (Tiers + Safety).")
     
 if __name__ == "__main__":
     test_config()

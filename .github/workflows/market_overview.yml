@@ -1,21 +1,15 @@
-name: Weekly Training
+name: Market Overview
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "0 6 * * 0" # Sunday 6:00 UTC (1:00 AM EST)
+    - cron: "0 14 * * 1-5" # 10:00 AM EST (approx)
+    - cron: "15 20 * * 1-5" # 16:15 PM EST (approx)
+  workflow_dispatch:
 
 jobs:
-  train:
+  overview:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-
-    env:
-      ALLOW_WEEKLY_TRAINING: ${{ secrets.ALLOW_WEEKLY_TRAINING }}
-
-    # Safety: Only run if explicitly enabled in secrets AND it's a scheduled run or intentional dispatch
-    
-      if: env.ALLOW_WEEKLY_TRAINING == 'true'
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -33,13 +27,10 @@ jobs:
         run: |
           curl --fail ${{ secrets.RENDER_BACKEND_URL }}/system/status || echo "Wakeup ping failed"
 
-      - name: Run Weekly Training
+      - name: Run Market Overview
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          API_KEY: ${{ secrets.API_KEY }}
-          ALLOW_WEEKLY_TRAINING: ${{ secrets.ALLOW_WEEKLY_TRAINING }}
-          FORCE_TRAINING: "true"
           ENV: "production"
           EXECUTION_SOURCE: "github_actions"
         run: |
-          python src/jobs/weekly_train.py
+          python src/jobs/market_overview_job.py

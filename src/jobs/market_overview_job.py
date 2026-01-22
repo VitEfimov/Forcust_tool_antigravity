@@ -14,7 +14,15 @@ from src.api.routes import _compute_market_overview
 
 def run_job():
     print(f"[JOB] Running Market Overview at {datetime.now()}")
-    monitor.log_heartbeat("MarketOverview", "running")
+    
+    # Execution Source Logging
+    source = os.getenv("EXECUTION_SOURCE", "scheduler")
+    if source == "github_actions":
+        import logging
+        logging.getLogger().info("Execution source: GitHub Actions")
+        print("Execution source: GitHub Actions")
+        
+    monitor.log_heartbeat("MarketOverview", "running", {"source": source})
     
     try:
         # 1. Watchlist
@@ -41,7 +49,8 @@ def run_job():
         bearish = len([x for x in overview.get('overview', []) if x.get('signal') == 'bearish'])
         monitor.log_heartbeat("MarketOverview", "success", {
             "items": len(overview.get('overview', [])),
-            "breadth": f"{bullish}/{bearish}"
+            "breadth": f"{bullish}/{bearish}",
+            "source": source
         })
         print("[JOB] Market Overview Completed Successfully.")
         

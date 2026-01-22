@@ -1,0 +1,38 @@
+name: Daily Automation
+
+on:
+  schedule:
+    - cron: "30 23 * * 1-5" # 18:30 EST (approx 23:30 UTC)
+  workflow_dispatch:
+
+jobs:
+  daily_run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Wake Render Server
+        run: |
+          curl --fail ${{ secrets.RENDER_BACKEND_URL }}/system/status || echo "Wakeup ping failed (might be awake already)"
+
+      - name: Run Daily Automation
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+          RENDER_BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL }}
+          ALLOW_WEEKLY_TRAINING: "false"
+          ENV: "production"
+          EXECUTION_SOURCE: "github_actions"
+        run: |
+          python src/jobs/daily_run.py
