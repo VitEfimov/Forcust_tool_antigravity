@@ -10,6 +10,7 @@ const ModelStatus = () => {
     const [logs, setLogs] = useState({ content: 'Loading logs...' });
     const [loading, setLoading] = useState(true);
     const [expandedTask, setExpandedTask] = useState(null);
+    const [fullTraining, setFullTraining] = useState(false);
 
     // 1. Initial Log Load on Expand
     useEffect(() => {
@@ -106,6 +107,7 @@ const ModelStatus = () => {
     // Active List (Current State)
     const activeTasks = Array.isArray(status?.activeTasks) ? status.activeTasks : [];
 
+
     return (
         <div className="dashboard">
             <header className="header" style={{ marginBottom: '2rem' }}>
@@ -119,21 +121,44 @@ const ModelStatus = () => {
                         ⚠️ <strong>CLOUD DEPLOYMENT NOTE:</strong> Please keep this tab OPEN while automation is running to prevent server sleep (Free Tier).
                     </div>
                 )}
-                <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
                     <div style={{ background: '#111', padding: '0.5rem 1rem', borderRadius: '4px', border: `1px solid ${getStatusColor(status?.api)}` }}>
                         API: {status?.api?.toUpperCase()}
                     </div>
                     <div style={{ background: '#111', padding: '0.5rem 1rem', borderRadius: '4px', border: `1px solid ${getStatusColor(status?.database)}` }}>
                         DB: {status?.database?.toUpperCase()}
                     </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', background: '#222', padding: '4px 10px', borderRadius: '4px', border: '1px solid #444' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.9rem', color: '#eee' }}>
+                            <input
+                                type="checkbox"
+                                checked={fullTraining}
+                                onChange={(e) => setFullTraining(e.target.checked)}
+                            />
+                            ⚡ Enable Full Training
+                        </label>
+                    </div>
+
                     <button
                         onClick={async () => {
-                            if (confirm("Start Daily Analysis? This runs ALL simulations (Training + Walk-Forward + V2).")) {
-                                try { await axios.post(`${API_URL}/system/run/daily`); alert("Started!"); }
-                                catch (e) { alert("Error: " + e.message); }
+                            const modeStr = fullTraining ? "FULL TRAINING (INTENSIVE)" : "Standard";
+                            if (confirm(`Start Daily Analysis [${modeStr}]? This runs ALL simulations.`)) {
+                                try {
+                                    if (fullTraining) {
+                                        await axios.post(`${API_URL}/admin/training/deep`);
+                                        console.log("Deep training enabled.");
+                                    }
+                                    await axios.post(`${API_URL}/system/run/daily`);
+                                    alert(`Started ${modeStr} Run!`);
+                                }
+                                catch (e) {
+                                    console.error(e);
+                                    alert(`Error: ${e.message}\nTrying to access: ${e.config?.url}`);
+                                }
                             }
                         }}
-                        style={{ background: '#00d4ff', border: 'none', borderRadius: '4px', padding: '0.5rem 1rem', cursor: 'pointer', fontWeight: 'bold' }}
+                        style={{ background: fullTraining ? '#ff9800' : '#00d4ff', color: fullTraining ? 'black' : 'white', border: 'none', borderRadius: '4px', padding: '0.5rem 1rem', cursor: 'pointer', fontWeight: 'bold' }}
                     >
                         ▶ Run All Simulations
                     </button>

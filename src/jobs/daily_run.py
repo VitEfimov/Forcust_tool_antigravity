@@ -209,7 +209,7 @@ def step_2_walk_forward(symbol, loader, horizon=10, train_window=730, step=30, u
         "current_price": df['Close'].iloc[-1]
     }
 
-def step_4_simulation(symbol, loader, current_price, ml_drift=None):
+def step_4_simulation(symbol, loader, current_price, tier="tier_3", ml_drift=None):
     """Run Fast Monte-Carlo (Advanced Simulation)."""
     try:
         from src.models.advanced_simulation import AdvancedSimulator
@@ -251,12 +251,19 @@ def step_4_simulation(symbol, loader, current_price, ml_drift=None):
         else:
             params={0: {'method': 'simple', 'std': returns.std(), 'mean': returns.mean()}}
             
+        # Determine Sims based on Tier
+        sims = 500
+        if tier == "tier_1": sims = 2000
+        elif tier == "tier_2": sims = 1000
+        
+        logger.info(f"    Running Simulation ({sims} paths) for {symbol}...")
+        
         res = sim.simulate_paths(
             start_price=current_price,
             start_regime=0,
             params=params, 
             days=30,
-            sims=1000,
+            sims=sims,
             engine='numpy',
             daily_drift=ml_drift # Inject ML Drift
         )
@@ -343,9 +350,12 @@ def generate_report_content(symbol, wf_data, sim_data):
     elif "STRONG SELL" in agreement: agreement_icon = "🔴"
     elif "NEUTRAL" in agreement: agreement_icon = "🟡"
     
+    # Cost Control Mode
+    mode_label = wf_data.get('summary_mode', 'short').upper()
+    
     report = f"""
 ============================================================
-DAILY INTELLIGENCE BRIEFING | {date_str}
+DAILY INTELLIGENCE BRIEFING | {date_str} | MODE: {mode_label}
 ============================================================
 ASSET: {symbol}
 PRICE: {price:.2f}
@@ -482,6 +492,12 @@ def run_daily_automation(scheduled_run: bool = False):
         
     monitor.log_heartbeat("DailyAutomation", "running", {"source": source})
     
+    # --- NEW: Start Run Record ---
+    from src.core.database import get_db
+    db = get_db()
+    run_id = db.start_training_run("daily", source)
+    logger.info(f"Started Training Run ID: {run_id}")  
+    
     # Start Keep-Alive Thread
     stop_ping = threading.Event()
     ping_thread = threading.Thread(target=keep_alive_pinger, args=(stop_ping,), daemon=True)
@@ -498,35 +514,25 @@ def run_daily_automation(scheduled_run: bool = False):
         derived_map = settings.DERIVED_HORIZONS
         AnalysisMode = settings.AnalysisMode
         
-        # 1. Derived Mode Check
+        # 0. Check for "ALLOW_FULL_TRAINING" flag (Config or DB)
+        # Note: We prefer to check the flag once outside, but here is fine.
+        allow_full_training = training_config.get("allow_weekly_training", False) or training_config.get("force_training", False)
+        
+        # 1. Derived Horizons: STRICTLY NEVER TRAINED (User Rule 5)
+        # Always derived from 10d or 100d
         if horizon in derived_map:
-            return AnalysisMode.DERIVED, derived_map[horizon]
-            
-        # 2. Base Horizon Check
-        if horizon not in base_horizons:
-            # If not a base horizon and not derived map, strictly skip or force inference?
-            # Safe default: Inference Only (assuming model exists or fallback)
-            return AnalysisMode.INFERENCE, None
-            
-        # 3. Training Logic (Tier Based)
-        # Force Training Flag overrides all
-        if training_config.get("force_training", False):
-             return AnalysisMode.TRAIN, None
+             return AnalysisMode.DERIVED, derived_map[horizon]
 
-        # Tier 1: Always allowed if Weekly Training Enabled
-        if symbol in tiers["tier_1"]:
-            if training_config.get("allow_weekly_training", False):
-                 return AnalysisMode.TRAIN, None
-            else:
-                 return AnalysisMode.INFERENCE, None
-                 
-        # Tier 2: Partial (Same logic for now, or maybe less frequent?)
-        if symbol in tiers["tier_2"]:
-             # Tier 2 only allowed if explicitly enabled
-             if training_config.get("allow_weekly_training", False):
+        # 2. Base Horizons (10, 100)
+        # If Full Training is ON -> TRAIN
+        # Else -> INFERENCE
+        if horizon in base_horizons:
+             if allow_full_training:
                   return AnalysisMode.TRAIN, None
-                  
-        # Default: Inference Only
+             else:
+                  return AnalysisMode.INFERENCE, None
+
+        # 3. Fallback (Unknown Horizon)
         return AnalysisMode.INFERENCE, None
 
     try:
@@ -536,7 +542,13 @@ def run_daily_automation(scheduled_run: bool = False):
         if task_controller.should_stop("DailyAutomation", consume=True):
              monitor.log_heartbeat("DailyAutomation", "cancelled", {"reason": "User requested stop"})
              return
+        
+        # --- NEW: Check Deep Training Flag (DEPRECATED IN DAILY RUN - Handled by deep_train.py) ---
+        # We leave this logic off or removed to prevent double execution.
+        # Deep training is now a separate job.
+        deep_training_flag = False
 
+        
         # Initialize Forecast Map for Report Table
         forecast_map = {}
 
@@ -554,8 +566,12 @@ def run_daily_automation(scheduled_run: bool = False):
         all_targets = set(settings.TIER_1_INDICES + settings.TIER_2_INDICES + settings.TRAINING_TARGETS + watchlist)
         all_targets = sorted(list(all_targets)) # Deduplicated
         
+        
         # Horizons to cover: Base + Derived
-        all_horizons = sorted(list(set(settings.BASE_HORIZONS + list(settings.DERIVED_HORIZONS.keys()))))
+        # STRICT DAILY HORIZONS: 10d, 100d (Task 6)
+        all_horizons = [10, 100]
+        # all_horizons = sorted(list(set(settings.BASE_HORIZONS + list(settings.DERIVED_HORIZONS.keys()))))
+        
         
         # Build Task List
         for sym in all_targets:
@@ -608,11 +624,39 @@ def run_daily_automation(scheduled_run: bool = False):
         GLOBAL_MARKET_REGIME = "Unknown"
 
         total_configs = len(ANALYSIS_CONFIGS)
+        
+        # Optimization: Preload Last Results for Watchlist Symbols to avoid DB hit per horizon
+        # We cache by {symbol: {horizon: result_dict}}
+        WF_CACHE = {}
+        
         for i, config in enumerate(ANALYSIS_CONFIGS):
             target_symbol = config['symbol']
             horizon = config['horizon']
             mode = config['mode']
             derived_source = config['derived_from']
+            
+            # 1. Populate Cache if missing
+            if target_symbol not in WF_CACHE:
+                logger.info(f"Preloading history for {target_symbol}...")
+                try:
+                    # db.get_history returns list of dicts for all horizons
+                    history = db.get_history(target_symbol)
+                    WF_CACHE[target_symbol] = {}
+                    if history:
+                        for rec in history:
+                            h = rec.get('horizon')
+                            if h and h not in WF_CACHE[target_symbol]:
+                                # Store the latest (first one encountered since sorted desc)
+                                WF_CACHE[target_symbol][h] = rec
+                except Exception as e:
+                    logger.warning(f"Failed to preload cache for {target_symbol}: {e}")
+            
+            # --- COST CONTROL LOGIC (Fix 5) ---
+            # Determine Summary Mode for Analyst
+            # Default to "short" unless it's a Tier 1 asset or User Mega Cap
+            summary_mode = "short"
+            if target_symbol in settings.TIER_1_INDICES or target_symbol in settings.MEGA_CAP_COMPONENTS:
+                summary_mode = "long"
             
             # Progress Heartbeat
             monitor.log_heartbeat("DailyAutomation", "running", {
@@ -620,7 +664,8 @@ def run_daily_automation(scheduled_run: bool = False):
                 "symbol": target_symbol, 
                 "progress": f"{i+1}/{total_configs}",
                 "horizon": horizon,
-                "mode": mode
+                "mode": mode,
+                "summary_mode": summary_mode
             })
             
             # Check Stop Signal
@@ -703,49 +748,57 @@ def run_daily_automation(scheduled_run: bool = False):
                         }
                         
                 elif mode == settings.AnalysisMode.DERIVED:
-                    # 3. DERIVED MODE (Scaling)
-                    # We need the result from the 'derived_from' horizon logic.
-                    # We assume it ran within this loop?
-                    # We need to fetch it from DB or Memory.
-                    # Since we iterate sequentially, and horizons are sorted, base (10) comes before derived (30).
-                    # We can fetch the *just saved* result from DB.
+                    # 3. DERIVED MODE (Scaled from Base Horizon)
+                    # Optimization: Use pre-fetched result from CACHE
+                    base_h = derived_source
                     
-                    base_res = db.get_latest_walk_forward_result(target_symbol, derived_source)
+                    # Fetch from Cache
+                    base_res = None
+                    if target_symbol in WF_CACHE and base_h in WF_CACHE[target_symbol]:
+                        base_res = WF_CACHE[target_symbol][base_h]
+                    else:
+                        # Fallback to DB if not in cache (e.g. if base horizon failed to compute/save in this run?)
+                        # Or if we just didn't catch it.
+                        base_res = db.get_latest_walk_forward_result(target_symbol, base_h)
+
                     df_latest = loader.get_data(target_symbol)
                     current_price = df_latest['Close'].iloc[-1] if not df_latest.empty else 0
                     
                     if base_res:
                         base_pred = base_res.get('prediction_price', current_price)
-                        base_h = derived_source
-                        target_h = horizon
+                        base_conf = base_res.get('reliability_score', 0.5)
+                        base_regime = base_res.get('regime_label', 'Unknown')
                         
-                        # Calculate Base Return
                         if current_price > 0:
                             base_log_ret = np.log(base_pred / current_price)
+                            target_h = horizon
                             
-                            # Scaling Logic:
-                            # 1. Linear Return Scaling (Standard expected value)
-                            # r_t = r_b * (T / B)
-                            scaled_log_ret = base_log_ret * (target_h / base_h)
-                            
-                            # 2. Volatility Scaling (Confidence)?
-                            # The return expectation scales linearly with time (drift).
-                            # The volatility scales with sqrt(time).
-                            # The user asked for "Volatility-scaled derivation", likely implying
-                            # that we shouldn't just linearly scale the *price* drift if it exceeds volatility bounds?
-                            # For simplicity and correctness in forecasting Mean: Linear Drift is correct.
-                            # For Confidence Interval (if we had it): Sqrt Time.
-                            # We will apply Linear Log Return scaling for the Target Price.
+                            # 1. Scaled Price (Fix 3: Log-Return Scaling with Sqrt)
+                            # task5_db.md: scaled_return = base_return * sqrt(target_horizon / base_horizon)
+                            import math
+                            ratio = target_h / base_h
+                            scaled_log_ret = base_log_ret * math.sqrt(ratio)
                             
                             final_pred = current_price * np.exp(scaled_log_ret)
+                            
+                            # Fix 5: Enforce derived != spot price (Guard)
+                            if abs(final_pred - current_price) < 1e-6:
+                                logger.warning(f"Derived forecast for {target_symbol} collapsed to spot price.")
+                            
+                            # 2. Volatility Scaling for Confidence (Fix 4: Confidence Decay)
+                            # Task says: exp(-0.015 * ratio)
+                            decay = np.exp(-0.015 * ratio)
+                            scaled_conf = base_conf * decay
                             
                             wf_data = {
                                 "dates": datetime.now(),
                                 "ml_forecast_price": final_pred,
-                                "reliability_score": base_res.get('reliability_score', 0.5), # Reuse reliability
-                                "regime": base_res.get('regime_label', 'Unknown'), # Reuse regime
+                                "reliability_score": scaled_conf,
+                                "regime": base_regime,
                                 "current_price": current_price,
-                                "trained": False
+                                "trained": False,
+                                "confidence_decay": decay,
+                                "summary_mode": summary_mode # Pass Cost Control
                             }
                         else:
                              wf_data = None
@@ -791,19 +844,32 @@ def run_daily_automation(scheduled_run: bool = False):
                     # Cap at +/- 1% daily (huge)
                     ml_drift = max(min(ml_drift, 0.01), -0.01)
                     
-                    sim_data = step_4_simulation(target_symbol, loader, current_price, ml_drift=ml_drift)
+                    # Determine Tier for Simulation Intensity (User Rule 3)
+                    sim_tier = "tier_3"
+                    if target_symbol in settings.TIER_1_INDICES: sim_tier = "tier_1"
+                    elif target_symbol in settings.TIER_2_INDICES: sim_tier = "tier_2"
+
+                    sim_data = step_4_simulation(target_symbol, loader, current_price, tier=sim_tier, ml_drift=ml_drift)
                     
-                    # Save Sim Result
-                    sim_result = AdvancedSimulationResult(
-                        symbol=target_symbol,
-                        date=datetime.now().strftime("%Y-%m-%d"),
-                        mc_p10=sim_data['mc_p10'],
-                        mc_p50=sim_data['mc_p50'],
-                        mc_p90=sim_data['mc_p90'],
-                        conservative_mode=False 
-                    )
-                    db.save_advanced_simulation_result(sim_result)
-                    processed_sim_symbols.add(target_symbol)
+                    # Fix 7: Sanitize Monte Carlo NaNs
+                    p10, p50, p90 = sim_data['mc_p10'], sim_data['mc_p50'], sim_data['mc_p90']
+                    
+                    if any(np.isnan(x) for x in [p10, p50, p90]):
+                        logger.warning(f"Monte Carlo produced NaNs for {target_symbol}. Skipping Simulation Save.")
+                        # Fallback for report
+                        sim_data = {"mc_p50": current_price, "mc_p10": current_price, "mc_p90": current_price}
+                    else:
+                        # Save Sim Result
+                        sim_result = AdvancedSimulationResult(
+                            symbol=target_symbol,
+                            date=datetime.now().strftime("%Y-%m-%d"),
+                            mc_p10=p10,
+                            mc_p50=p50,
+                            mc_p90=p90,
+                            conservative_mode=False 
+                        )
+                        db.save_advanced_simulation_result(sim_result)
+                        processed_sim_symbols.add(target_symbol)
                 else:
                     # Reuse previous sim data for report if needed
                     # (Simplified: we just use placeholders or skip reporting section)
@@ -830,6 +896,17 @@ def run_daily_automation(scheduled_run: bool = False):
                     start_price=current_price,
                     target_date=target_date
                 )
+                
+                # 3. New Symbol Forecast Table (Task 6)
+                db.save_symbol_forecast(
+                    run_id=run_id,
+                    symbol=target_symbol,
+                    horizon=horizon,
+                    expected_return=(wf_data['ml_forecast_price'] - current_price) / current_price * 100 if current_price else 0.0,
+                    confidence=wf_data['reliability_score'],
+                    regime=wf_data['regime'],
+                    volatility=wf_data.get('volatility_label', 'Unknown') # Need to ensure vol label is present or derive
+                ) 
 
                 # 2. Strict Pydantic Models
                 # A. Walk-Forward Result
@@ -846,14 +923,14 @@ def run_daily_automation(scheduled_run: bool = False):
                 db.save_walk_forward_result(wf_result)
                 
                 # --- NEW: Capture Forecast for Report Map ---
-                if horizon in [30, 365]:
-                    if target_symbol not in forecast_map:
-                        forecast_map[target_symbol] = {}
-                    
-                    # Calculate % change
-                    if current_price > 0:
-                        pct_change = (wf_data['ml_forecast_price'] - current_price) / current_price * 100
-                        forecast_map[target_symbol][horizon] = pct_change
+                # Capture ALL horizons for the snapshot
+                if target_symbol not in forecast_map:
+                    forecast_map[target_symbol] = {}
+                
+                # Calculate % change
+                if current_price > 0:
+                    pct_change = (wf_data['ml_forecast_price'] - current_price) / current_price * 100
+                    forecast_map[target_symbol][horizon] = pct_change
 
                 print(f"[DB] Saved intelligent models for {target_symbol} (H={horizon})")
                 
@@ -911,7 +988,9 @@ def run_daily_automation(scheduled_run: bool = False):
                         "change_pct": round(change_pct, 2),
                         "regime": regime,
                         "risk_label": risk,
-                        "volatility_outlook": "Stable" if risk == "Low Volatility" else "Unstable"
+                        "risk_label": risk,
+                        "volatility_outlook": "Stable" if risk == "Low Volatility" else "Unstable",
+                        "forecasts": forecast_map.get(sym, {}) # Inject trained forecasts
                     })
                 except: pass
                 
@@ -980,7 +1059,15 @@ def run_daily_automation(scheduled_run: bool = False):
         # Cleanup Old Reports
         cleanup_reports(14)
         
+        # --- RESET DEEP TRAINING FLAG ---
+        if deep_training_flag:
+            logger.info("Deep Training Run Complete. Resetting flag.")
+            db.set_config("ALLOW_DEEP_TRAINING", "false")
+        
+        # --- END RUN ---
+        db.end_training_run(run_id, status="success")
         print("=== DAILY AUTOMATION COMPLETE ===")
+
         
         duration = time.time() - start_time
         monitor.log_heartbeat("DailyAutomation", "success", {

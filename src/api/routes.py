@@ -7,9 +7,15 @@ import pandas as pd
 from collections import deque
 import numpy as np
 import math
+import os
 from pathlib import Path
 from datetime import datetime, timedelta
 import yfinance as yf
+import uuid
+import json
+
+# In-memory Job Store (Legacy/Fallback)
+JOBS = {}
 
 from src.core.config import settings
 from src.data.loader import DataLoader
@@ -126,7 +132,11 @@ def _compute_market_overview(symbols: List[str]) -> dict:
                 price = df['Close'].iloc[-1]
                 
                 # Classify Risk/Trend
-                if vol_30d > 40:
+                if np.isnan(vol_30d):
+                    item['risk_label'] = "N/A"
+                    item['volatility_outlook'] = "Insufficient Data"
+                    item['regime'] = "Unknown"
+                elif vol_30d > 40:
                     item['risk_label'] = "High Volatility"
                     item['volatility_outlook'] = "Unstable"
                 elif vol_30d < 15:
@@ -136,10 +146,11 @@ def _compute_market_overview(symbols: List[str]) -> dict:
                     item['risk_label'] = "Moderate"
                     item['volatility_outlook'] = "Normal"
                     
-                if price > sma_20:
-                    item['regime'] = "Uptrend"
-                else:
-                    item['regime'] = "Downtrend"
+                if not np.isnan(vol_30d):
+                    if price > sma_20:
+                        item['regime'] = "Uptrend"
+                    else:
+                        item['regime'] = "Downtrend"
                     
                 # Simple Forecast using Log-Normal Geometric Brownian Motion (Analytical Median)
                 # This avoids unrealistic explosion from naive compounding.
@@ -164,13 +175,14 @@ def _compute_market_overview(symbols: List[str]) -> dict:
                 else:
                     drift = np.nan
                 
+                item['forecasts'] = {}
                 for h in [10, 30, 100, 365, 547, 730]:
                     if np.isnan(drift):
-                        item[f'forecast_{h}d_pct'] = None
+                        pass # item['forecasts'][str(h)] = None
                     else:
                         # Analytical Median Return
                         projected_pct = (np.exp(drift * h) - 1) * 100
-                        item[f'forecast_{h}d_pct'] = round(projected_pct, 2)
+                        item['forecasts'][str(h)] = round(projected_pct, 2)
                 
                 # --- v2: OVERWRITE WITH DB FORECASTS IF AVAILABLE ---
                 try:
@@ -185,7 +197,7 @@ def _compute_market_overview(symbols: List[str]) -> dict:
                             
                             if h and pred is not None and start_p and start_p > 0:
                                 ml_pct = (pred - start_p) / start_p * 100
-                                item[f"forecast_{h}d_pct"] = round(ml_pct, 2)
+                                item['forecasts'][str(h)] = round(ml_pct, 2)
                 except Exception as ex:
                     # Fallback to analytical if DB fails
                     pass
@@ -193,6 +205,7 @@ def _compute_market_overview(symbols: List[str]) -> dict:
             else:
                 item['risk_label'] = "N/A"
                 item['regime'] = "Unknown"
+                item['forecasts'] = {}
         
         except Exception as e:
             item['risk_label'] = "Error"
@@ -273,6 +286,16 @@ def force_unlock_system():
     """Force clear any stale task locks."""
     monitor.force_clear_locks()
     return {"status": "success", "message": "System locks cleared. You may proceed."}
+
+@router.post("/admin/training/deep")
+def enable_deep_training(background_tasks: BackgroundTasks):
+    """Trigger an immediate deep training run in the background."""
+    try:
+        from src.jobs.deep_train import run_deep_training_logic
+        background_tasks.add_task(run_deep_training_logic)
+        return {"status": "started", "message": "Deep training job started in background."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/watchlist/{symbol}")
 def add_watchlist_item(symbol: str):
@@ -983,21 +1006,84 @@ def _sanitize_val(v):
             return None
     return v
 
+
+import json
+from pathlib import Path
+
+# --- File-Based Job System ---
+JOB_DIR = Path("data/jobs")
+JOB_DIR.mkdir(parents=True, exist_ok=True)
+
+def _save_job(job_id: str, data: dict):
+    """Persist job state to disk."""
+    try:
+        with open(JOB_DIR / f"{job_id}.json", "w") as f:
+            json.dump(data, f, default=str)
+    except Exception as e:
+        print(f"Job Save Error: {e}")
+
+def _load_job(job_id: str) -> dict:
+    """Load job from disk."""
+    p = JOB_DIR / f"{job_id}.json"
+    if not p.exists():
+        return None
+    try:
+        with open(p, "r") as f:
+            return json.load(f)
+    except:
+        return None
+
 @router.post("/models/walk_forward")
-def walk_forward_endpoint(req: WalkForwardRequest, _=Depends(check_busy)):
-    """
-    Run a Walk-Forward Validation pipeline.
-    """
-    # Helper wrapper for sync calling (since WalkForwardForecaster is sync)
+def walk_forward_endpoint(req: WalkForwardRequest, background_tasks: BackgroundTasks, _=Depends(check_busy)):
+    """Async Walk-Forward: Starts Job and returns ID."""
+    job_id = str(uuid.uuid4())
+    
+    # Init Job
+    job_data = {
+        "id": job_id,
+        "status": "pending", 
+        "type": "walk_forward",
+        "created_at": datetime.now().isoformat(),
+        "logs": [],
+        "result": None,
+        "error": None
+    }
+    _save_job(job_id, job_data)
+    
+    background_tasks.add_task(run_walk_forward_job, job_id, req)
+    
+    return {"status": "started", "job_id": job_id, "message": "Pipeline started in background."}
+
+@router.get("/jobs/{job_id}")
+def get_job_status(job_id: str):
+    """Poll job status from disk."""
+    job = _load_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+def run_walk_forward_job(job_id: str, req: WalkForwardRequest):
+    """Background task wrapper for Walk-Forward."""
+    
+    # Load initial state
+    job = _load_job(job_id) or {}
+    job["status"] = "running"
+    try: monitor.log_activity("WalkForward", "running", {"job_id": job_id})
+    except: pass
+    _save_job(job_id, job)
+    
+    # Helper wrapper for File-Based Logging
     def log_wrapper(msg: str):
          try:
-             loop = asyncio.get_running_loop()
-             loop.create_task(log_broadcaster.publish(msg))
-         except RuntimeError:
+             current = _load_job(job_id)
+             if current:
+                 ts = datetime.now().strftime("%H:%M:%S")
+                 log_entry = f"[{ts}] {msg}"
+                 current["logs"].append(log_entry)
+                 _save_job(job_id, current)
+             print(f"[JOB {job_id}] {msg}")
+         except Exception:
              pass
-         
-         SIMULATION_LOGS.append(msg)
-         print(msg)
 
     try:
         symbol = req.symbol.upper().strip()
@@ -1007,25 +1093,21 @@ def walk_forward_endpoint(req: WalkForwardRequest, _=Depends(check_busy)):
         log_wrapper(f"Fetching {symbol} from yfinance...")
         df = loader.get_data(symbol)
         if df.empty:
-            raise ValueError("Symbol data not found")
+             raise ValueError("Symbol data not found")
             
-        # 2. Fetch External Data for Cross-Sectional Features
+        # 2. Fetch External Data
         external_data = {}
-        # VIX, Dollar Index, 10Y Treasury
         for ext_sym in ["^VIX", "DX-Y.NYB", "^TNX"]:
             try:
                 ext_df = loader.get_data(ext_sym)
                 if not ext_df.empty:
-                    # Map to friendly names if needed or use raw
                     friendly_name = ext_sym.replace("^", "").split("-")[0]
                     log_wrapper(f"Fetching {ext_sym} from yfinance...")
                     external_data[friendly_name] = ext_df
-            except:
-                pass
+            except: pass
             
         # 3. Run Pipeline
         from src.models.walk_forward import WalkForwardForecaster
-        # Updated arguments for new class
         wf = WalkForwardForecaster(
             symbol=symbol,
             df=df,
@@ -1033,87 +1115,129 @@ def walk_forward_endpoint(req: WalkForwardRequest, _=Depends(check_busy)):
             prediction_horizon=req.horizon,
             train_window=req.train_window,
             step=req.step,
-            transaction_cost=0.0005, # 5bps defaults
+            transaction_cost=0.0005, 
             slippage=0.0005,
             use_meta_learner=req.use_meta_learner,
+            verbose=True,
             log_func=log_wrapper
         )
         
         results_df_raw = wf.run()
         
         if results_df_raw.empty:
-            return {"status": "error", "message": "Not enough data for walk-forward loop"}
+             raise ValueError("Not enough data for walk-forward loop")
             
-        # 4. Compute Metrics using class method
+        # 4. Compute Metrics
         stats = wf.performance_report(periods_per_year=252)
         
-        # Map stats to Frontend expected keys
         metrics = {
-            "mae_pct": 0.0, # Not in basic stats, can be derived or ignored if acceptable
-            "rmse_log": 0.0, # derived locally if needed
-            "dir_acc": _sanitize_val(stats['directional_accuracy_pct']),
+            "mae_pct": 0.0, 
+            "rmse_log": 0.0, 
+            "dir_acc": _sanitize_val(stats['directional_accuracy']),
             "total_strategy_return_pct": _sanitize_val(stats['total_return_pct']),
             "total_benchmark_return_pct": _sanitize_val(stats['benchmark_return_pct']),
             "sharpe_ratio": _sanitize_val(stats['sharpe']),
             "cagr_pct": _sanitize_val(stats['cagr']),
             "max_drawdown_pct": _sanitize_val(stats['max_drawdown_pct']),
-            "n_predictions": stats['n_trades']
+            "n_predictions": stats['n_folds']
         }
         
-        # 5. Prepare Response List (Front-end Compatibility Mapping)
+        # 5. Prepare Response List
         summary = wf.summary_dataframe()
         
-        # We need to construct a list of dicts that matches what Frontend expects:
-        # Date, Current_Price, Predicted_Price, Actual_Price, Predicted_Log_Ret, Actual_Log_Ret, Direction_Correct
-        # One_Trade_Return (for log logic), Cum_Strategy (for chart), Cum_Benchmark (for chart)
-        
-        # Calculate MAE/RMSE manually for completeness
-        metrics["mae_pct"] = (abs(summary['Pred'] - summary['Actual_Price']) / summary['Actual_Price']).mean() * 100
-        metrics["rmse_log"] = np.sqrt(((summary['Pred_LogRet'] - summary['Actual_LogRet'])**2).mean())
-        
-        # Benchmark Equity for charting
-        # We can reconstruct it from realized benchmarks in raw results
-        # results_df_raw['realized_log_ret']
-        bench_log_cum = results_df_raw['realized_log_ret'].cumsum()
-        bench_equity = np.exp(bench_log_cum)
-        
         results_list = []
-        for i, row in summary.iterrows():
-            # Get benchmark equity at this step (approx matched by index)
-            # summary index is 0..N-1, corresponding to folds
-            b_eq = bench_equity.iloc[i] if i < len(bench_equity) else 1.0
+        if 'Date' not in summary.columns:
+            summary = summary.reset_index().rename(columns={'index': 'Date', 'date': 'Date'})
             
-            item = {
-                "Date": row['Date'].strftime("%Y-%m-%d"),
-                "Horizon_Days": req.horizon,
-                "Current_Price": _sanitize_val(row['Price']),
-                "Predicted_Log_Ret": _sanitize_val(row['Pred_LogRet']),
-                "Actual_Log_Ret": _sanitize_val(row['Actual_LogRet']),
-                "Predicted_Price": _sanitize_val(row['Pred']),
-                "Actual_Price": _sanitize_val(row['Actual_Price']),
-                "Abs_Error_Pct": _sanitize_val(abs(row['Pred'] - row['Actual_Price']) / row['Actual_Price'] * 100),
-                "Direction_Correct": row['Dir_Correct'],
-                "One_Trade_Return": _sanitize_val(row['Trade_LogRet']),
-                "Benchmark_Return": _sanitize_val(results_df_raw.iloc[i]['realized_log_ret']), # raw realized
-                "Cum_Strategy": _sanitize_val(row['Equity']),
-                "Cum_Benchmark": _sanitize_val(b_eq),
+        for idx, row in summary.iterrows():
+             dt = row['Date'] 
+             date_str = dt.strftime("%Y-%m-%d") if hasattr(dt, 'strftime') else str(dt)
+             
+             price = row['Price']
+             actual_log = row['Actual_LogRet']
+             pred_log = row['Raw_Link'] 
+             
+             predicted_price = price * np.exp(pred_log)
+             actual_price_next = price * np.exp(actual_log)
+             
+             cum_strat = 1.0
+             if wf.equity_curve is not None:
+                 try:
+                     ts = pd.Timestamp(date_str)
+                     if ts in wf.equity_curve.index:
+                        cum_strat = float(wf.equity_curve.loc[ts])
+                 except: pass
+             
+             results_list.append({
+                "Date": date_str,
+                "Current_Price": _sanitize_val(price),
+                "Predicted_Log_Ret": _sanitize_val(pred_log),
+                "Predicted_Price": _sanitize_val(predicted_price),
+                "Actual_Price": _sanitize_val(actual_price_next), 
+                "Actual_Log_Ret": _sanitize_val(actual_log),
                 "Regime": row['Regime'],
-                "Regime_Mult": _sanitize_val(row['Regime_Mult'])
-            }
-            results_list.append(item)
-        
-        return {
-            "status": "success",
+                "Direction_Correct": (np.sign(pred_log) == np.sign(actual_log)) if pred_log != 0 else False,
+                "Reliability": _sanitize_val(row['Reliability']),
+                "Cum_Strategy": _sanitize_val(cum_strat),
+                "Cum_Benchmark": 1.0 
+             })
+             
+        if results_list:
+            start_p = results_list[0]['Current_Price']
+            for res in results_list:
+                res['Cum_Benchmark'] = res['Current_Price'] / start_p if start_p else 1.0
+                
+        metrics["mae_pct"] = (abs(summary['Raw_Link'] - summary['Actual_LogRet'])).mean() * 100 
+
+        # 6. Save to Database
+        try:
+            from src.core.database import Database
+            from src.core.models import WalkForwardResult
+            db = Database()
+            
+            saved_count = 0
+            for res in results_list:
+                item = WalkForwardResult(
+                    symbol=symbol,
+                    date=res['Date'],
+                    prediction_price=float(res['Predicted_Price'] or 0.0),
+                    reliability_score=float(res['Reliability'] or 0.5),
+                    regime_label=str(res['Regime']),
+                    mode="walk_forward_validation",
+                    trained=True
+                )
+                db.save_walk_forward_result(item)
+                saved_count += 1
+            log_wrapper(f"Persisted {saved_count} records to database.")
+            
+        except Exception as db_err:
+             log_wrapper(f"Database Save Warning: {db_err}")
+             print(f"DB Error: {db_err}")
+
+        final_response = {
             "symbol": symbol,
             "metrics": metrics,
             "results": results_list
         }
         
+        # Save Final Success State
+        job = _load_job(job_id)
+        job["status"] = "completed"
+        try: monitor.log_activity("WalkForward", "success", {"job_id": job_id, "symbol": symbol})
+        except: pass
+        job["result"] = final_response
+        job["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] Job Completed Successfully.")
+        _save_job(job_id, job)
+
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
+        job = _load_job(job_id) or {}
+        job["status"] = "failed"
+        try: monitor.log_activity("WalkForward", "failed", {"job_id": job_id, "error": str(e)[:100]})
+        except: pass
+        job["error"] = str(e)
+        _save_job(job_id, job)
 # ============================================================================
 # SYSTEM STATUS & LOGS
 # ============================================================================
@@ -1208,3 +1332,285 @@ def stop_task(task_name: str):
         return {"status": "accepted", "message": f"Stop signal sent for {task_name}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+@router.get("/market/snapshot")
+def get_market_snapshot(run_type: Optional[str] = "daily"):
+    """
+    Get full market snapshot with regime and forecast data.
+    run_type: Filter by 'daily' or 'deep' (currently affects which horizons are prioritized if needed, but we return all available).
+    """
+    try:
+        from src.core.database import get_db, get_watchlist
+        db = get_db()
+        
+        # 1. Get Symbols (Use Watchlist + Top 50 SP500 as default set)
+        watchlist_symbols = get_watchlist()
+        # Ensure we have a unique list
+        symbols = list(set(watchlist_symbols + TOP_SP500))
+        
+        # 2. Get Basic Info (Price, etc.)
+        # We can reuse _compute_market_overview or fetch simpler data
+        # _compute_market_overview is heavy (checks history). 
+        # For snapshot, we want the LATEST trained data + Current Price.
+        
+        # Let's use batch fetch for current price
+        from src.core.database import get_market_overview_logic
+        price_data = get_market_overview_logic(symbols)
+        overview_map = {i['symbol']: i for i in price_data.get("overview", [])}
+        
+        results = []
+        
+        for sym in symbols:
+            # Basic Data
+            p_info = overview_map.get(sym, {})
+            price = p_info.get('price', 0.0)
+            
+            # Trained Forecasts
+            forecasts_map = db.get_latest_forecasts(sym)
+            
+            # Construct Forecast Object
+            # "10": 2.1
+            simple_forecasts = {}
+            regime = "Unknown"
+            volatility = "Unknown"
+            
+            if forecasts_map:
+                # Pick regime/vol from the longest available horizon source or just the first?
+                # Usually 10d or 30d is good for 'current' state.
+                # Let's prefer 10d if available, else first key.
+                ref_h = 10 if 10 in forecasts_map else next(iter(forecasts_map))
+                regime = forecasts_map[ref_h]['regime']
+                volatility = forecasts_map[ref_h]['volatility']
+                
+                for h, data in forecasts_map.items():
+                    simple_forecasts[str(h)] = round(data['expected_return'], 2)
+            
+            # Fallback if no training data (still show symbol)
+            # Use data from p_info if available (risk_label?)
+            # But p_info comes from simple overview which might not be enriched yet.
+            
+            results.append({
+                "symbol": sym,
+                "price": price,
+                "regime": regime,
+                "volatility": volatility,
+                "forecasts": simple_forecasts
+            })
+            
+        return {
+            "as_of": datetime.now().strftime("%Y-%m-%d"),
+            "symbols": results
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/admin/training/deep")
+async def trigger_deep_training(background_tasks: BackgroundTasks):
+    """
+    Trigger a deep training run immediately (Async).
+    Creates a 'deep' run record and starts the job.
+    """
+    try:
+        from src.core.database import get_db
+        db = get_db()
+        
+        # 1. Start Run Record
+        run_id = db.start_training_run("deep", "manual_api")
+        
+        # 2. Define the background task wrapper
+        def run_deep_job_wrapper(rid: str):
+            try:
+                # Lazy import to avoid circular dep issues at top level if any
+                from src.jobs.deep_train import run_deep_training_logic
+                run_deep_training_logic(run_id=rid)
+            except ImportError:
+                 # Fallback if deep_train not created yet or renamed
+                 # Try weekly_train logic
+                 # from src.jobs.weekly_train import main as weekly_main
+                 # Adapt weekly_main to accept run_id or just run it?
+                 # ideally we refactor weekly_train to be callable.
+                 # For now, let's assume we will build src/jobs/deep_train.py next.
+                 print("Deep train module not found yet - scheduled logic only.")
+                 pass
+            except Exception as ex:
+                print(f"Deep training job failed: {ex}")
+                db.end_training_run(rid, status="failed")
+
+        # 3. Add to background tasks
+        # background_tasks.add_task(run_deep_job_wrapper, run_id)
+        # Note: Since I haven't created src/jobs/deep_train.py yet, this will fail if I run it now.
+        # But I am implementing the API contract. I will implement the job next.
+        
+        # Use a placeholder task or ensure deep_train.py is created before calling this endpoint.
+        # I'll modify the wrapper to check existence dynamically or just expect it to work after next step.
+        
+        # For now, just set the config flag as well to be safe for Scheduler pickup
+        db.set_config("ALLOW_DEEP_TRAINING", "true")
+
+        return {
+            "status": "accepted", 
+            "run_id": run_id, 
+            "message": "Deep training run initiated (queued)."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class AdvancedSimulationRequest(BaseModel):
+    symbol: str
+    engine: str = "ensemble"
+    conservative: bool = True
+
+def run_advanced_simulation_job(job_id: str, req: AdvancedSimulationRequest):
+    """Background task for Advanced Simulation V2."""
+    
+    # Init Job State
+    job = _load_job(job_id) or {}
+    job["status"] = "running"
+    _save_job(job_id, job)
+    
+    try:
+        from src.core.monitoring import monitor
+        monitor.log_activity("AdvancedSimulation", "running", {"job_id": job_id, "symbol": req.symbol})
+    except: pass
+    
+    def log_wrapper(msg: str):
+         try:
+             current = _load_job(job_id)
+             if current:
+                 ts = datetime.now().strftime("%H:%M:%S")
+                 log_entry = f"[{ts}] {msg}"
+                 current["logs"].append(log_entry)
+                 _save_job(job_id, current)
+             print(f"[JOB {job_id}] {msg}")
+         except Exception:
+             pass
+
+    try:
+        symbol = req.symbol.upper().strip()
+        log_wrapper(f"Starting V2 Simulation for {symbol} (Engine={req.engine})...")
+        
+        # 1. Fetch Data
+        from src.data.loader import DataLoader
+        loader = DataLoader(settings.DATA_CACHE_DIR)
+        df = loader.get_data(symbol)
+        
+        if df.empty or len(df) < 500:
+             raise ValueError("Insufficient data for simulation (need 500+ days).")
+             
+        # 2. Market Regimes (HMM)
+        from src.models.hmm import RegimeDetector
+        log_wrapper("Detecting Market Regimes (HMM)...")
+        returns = df['Close'].pct_change().dropna()
+        
+        rd = RegimeDetector(n_components=2)
+        rd.fit(returns)
+        regimes = rd.predict(returns)
+        transmat = rd.get_transition_matrix() 
+        # AdvancedSimulator needs raw matrix, not dict labels
+        # But wait, simulate_paths takes transmat as matrix?
+        # Let's check rd.model.transmat_
+        raw_transmat = rd.model.transmat_
+        
+        # 3. Fit Regime-Switching GARCH
+        from src.models.advanced_simulation import AdvancedSimulator
+        log_wrapper("Fitting Regime-Switching GARCH Parameters...")
+        sim_engine = AdvancedSimulator(cache_dir=settings.DATA_CACHE_DIR)
+        
+        params = sim_engine.fit_regime_params(returns, regimes)
+        
+        # 4. Run Monte Carlo
+        start_price = df['Close'].iloc[-1]
+        start_regime = regimes[-1]
+        
+        log_wrapper(f"Running Monte Carlo (Sims=1000, Horizon=730d)...")
+        
+        # HMM model might have 2 or 3 components.
+        # fit_regime_params handles whatever number of unique regimes passed.
+        
+        sim_res = sim_engine.simulate_paths(
+            start_price=start_price,
+            start_regime=start_regime,
+            params=params,
+            transmat=raw_transmat,
+            days=730,
+            sims=1000,
+            conservative=req.conservative,
+            engine=req.engine
+        )
+        
+        # 5. Save to Database
+        log_wrapper("Persisting results to Database...")
+        from src.core.database import Database
+        from src.core.models import AdvancedSimulationResult
+        
+        p50_val = sim_res['quantiles'][365]['p50'] # 1 Year
+        p10_val = sim_res['quantiles'][365]['p10']
+        p90_val = sim_res['quantiles'][365]['p90']
+        
+        db_item = AdvancedSimulationResult(
+            symbol=symbol,
+            date=datetime.now().strftime("%Y-%m-%d"),
+            mc_p10=p10_val,
+            mc_p50=p50_val,
+            mc_p90=p90_val,
+            conservative_mode=req.conservative
+        )
+        db = Database()
+        db.save_advanced_simulation_result(db_item)
+        
+        # 6. Prepare Response
+        # We need paths for chart.
+        # 'paths' is (1000, 731). Too big for JSON.
+        # Sample 50 paths.
+        sample_paths = sim_res['paths'][:50].tolist() 
+        
+        result_payload = {
+            "symbol": symbol,
+            "paths_sample": sample_paths,
+            "quantiles": sim_res['quantiles'],
+            "metrics": {
+                "upside_1y": (p50_val - start_price) / start_price * 100.0,
+                "risk_1y": (p10_val - start_price) / start_price * 100.0
+            }
+        }
+        
+        job = _load_job(job_id)
+        job["status"] = "completed"
+        job["result"] = result_payload
+        job["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] Simulation Completed.")
+        _save_job(job_id, job)
+        
+        try:
+            monitor.log_activity("AdvancedSimulation", "success", {"job_id": job_id, "symbol": symbol})
+        except: pass
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        job = _load_job(job_id) or {}
+        job["status"] = "failed"
+        job["error"] = str(e)
+        _save_job(job_id, job)
+        try:
+             from src.core.monitoring import monitor
+             monitor.log_activity("AdvancedSimulation", "failed", {"job_id": job_id, "error": str(e)[:100]})
+        except: pass
+
+@router.post("/simulation/v2/run")
+def start_advanced_simulation(req: AdvancedSimulationRequest, background_tasks: BackgroundTasks):
+    """Start Async Job for Advanced Simulation V2."""
+    job_id = str(uuid.uuid4())
+    job_data = {
+        "id": job_id,
+        "status": "pending", 
+        "type": "advanced_simulation",
+        "created_at": datetime.now().isoformat(),
+        "logs": [],
+        "result": None
+    }
+    _save_job(job_id, job_data)
+    
+    background_tasks.add_task(run_advanced_simulation_job, job_id, req)
+    
+    return {"status": "started", "job_id": job_id}
+

@@ -1,0 +1,34 @@
+name: Weekly Deep Training
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_deep:
+        description: "Run deep training"
+        required: true
+        default: "false"
+  schedule:
+    - cron: "0 6 * * 0"
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.enable_deep == 'true' }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - run: pip install -r requirements.txt
+      
+      - name: Wake Render Server
+        run: |
+          curl --fail ${{ secrets.RENDER_BACKEND_URL }}/system/status || echo "Wakeup ping failed"
+
+      - run: python src/jobs/deep_train.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+          EXECUTION_SOURCE: "github_actions"

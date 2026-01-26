@@ -4,7 +4,7 @@ import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
     AreaChart, Area
 } from 'recharts';
-import './Analytics.css'; // We will create this as well
+import './Analytics.css';
 import AdvancedAnalytics from './AdvancedAnalytics';
 
 const Analytics = () => {
@@ -74,6 +74,23 @@ const Analytics = () => {
         }
     };
 
+    // Helper to extract unique horizons from current snapshot
+    const getAvailableHorizons = (snapshot) => {
+        if (!snapshot || !snapshot.rawOverview) return [];
+        const horizons = new Set();
+        snapshot.rawOverview.forEach(item => {
+            if (item.forecasts) {
+                Object.keys(item.forecasts).forEach(h => horizons.add(parseInt(h)));
+            } else {
+                // Legacy support or fallback keys? 
+                // Currently only 'forecasts' object is supported by new backend.
+            }
+        });
+        return Array.from(horizons).sort((a, b) => a - b);
+    };
+
+    const horizons = selectedSnapshot ? getAvailableHorizons(selectedSnapshot) : [];
+
     if (loading) return <div className="analytics-loading">Loading Analytics...</div>;
     if (error) return <div className="analytics-error">{error}</div>;
 
@@ -81,7 +98,24 @@ const Analytics = () => {
         <div className="analytics-container">
             <header className="analytics-header">
                 <h2>Market Analytics</h2>
-                <p>Historical trend analysis of market regimes and volatility.</p>
+                <p>Historical trend analysis of market regimes and volatility. (Deep Training Enabled)</p>
+
+                <div className="admin-controls" style={{ marginTop: '10px', padding: '10px', border: '1px solid #444', borderRadius: '4px', display: 'inline-block' }}>
+                    <button
+                        onClick={async () => {
+                            if (!window.confirm("Trigger Deep Training (30d, 180d, 365d) NOW? This runs in the background.")) return;
+                            try {
+                                const res = await axios.post(`${API_URL}/admin/training/deep`);
+                                alert(`Deep Training Initiated. Run ID: ${res.data.run_id}`);
+                            } catch (e) {
+                                alert("Error: " + e.message);
+                            }
+                        }}
+                        style={{ background: '#ff9800', color: 'black', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                    >
+                        🚀 Trigger Deep Training (Now)
+                    </button>
+                </div>
             </header>
 
             <div className="charts-grid">
@@ -147,7 +181,9 @@ const Analytics = () => {
                                     <th>Change %</th>
                                     <th>Regime</th>
                                     <th>Volatility</th>
-                                    <th>Forecast (30d)</th>
+                                    {horizons.map(h => (
+                                        <th key={h}>Forecast ({h}d)</th>
+                                    ))}
                                 </tr>
                             </thead>
                             <tbody>
@@ -168,13 +204,18 @@ const Analytics = () => {
                                                 {stock.risk_label}
                                             </span>
                                         </td>
-                                        <td>
-                                            {stock.forecast_30d_pct ? (
-                                                <span className={stock.forecast_30d_pct >= 0 ? 'text-green' : 'text-red'}>
-                                                    {stock.forecast_30d_pct > 0 ? '+' : ''}{stock.forecast_30d_pct}%
-                                                </span>
-                                            ) : 'N/A'}
-                                        </td>
+                                        {horizons.map(h => {
+                                            const val = stock.forecasts ? stock.forecasts[h] : null;
+                                            return (
+                                                <td key={h}>
+                                                    {val !== null && val !== undefined ? (
+                                                        <span className={val >= 0 ? 'text-green' : 'text-red'}>
+                                                            {val > 0 ? '+' : ''}{Number(val).toFixed(2)}%
+                                                        </span>
+                                                    ) : <span className="text-muted">-</span>}
+                                                </td>
+                                            );
+                                        })}
                                     </tr>
                                 ))}
                             </tbody>

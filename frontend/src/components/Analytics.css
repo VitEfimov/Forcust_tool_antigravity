@@ -93,6 +93,7 @@
 
 .analytics-table tbody tr:hover {
     background: #222;
+    cursor: pointer; /* Enhance UX */
 }
 
 .badge {
@@ -135,4 +136,20 @@
     margin-top: 5rem;
     font-size: 1.5rem;
     color: #aaa;
+}
+
+/* Modal Overlay Styles */
+.analytics-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.85);
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 2rem;
+    backdrop-filter: blur(5px);
 }

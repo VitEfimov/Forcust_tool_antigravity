@@ -20,7 +20,15 @@ export const useSystemStatus = () => {
                 // Heavy tasks: DailyAutomation, WeeklyTraining, MLTraining, WalkForward, AdvancedSimulation
                 const heavyTasks = ["DailyAutomation", "WeeklyTraining", "MLTraining", "WalkForward", "AdvancedSimulation"];
 
-                const runningItem = events.find(t => {
+                // Dedup to get only the latest status for each task
+                const latestEvents = {};
+                events.forEach(e => {
+                    if (!latestEvents[e.task]) {
+                        latestEvents[e.task] = e;
+                    }
+                });
+
+                const runningItem = Object.values(latestEvents).find(t => {
                     const isRunning = heavyTasks.includes(t.task) && t.status?.toLowerCase().includes('running');
                     if (!isRunning) return false;
 

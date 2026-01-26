@@ -100,6 +100,14 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # System Config Table (New)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS system_config (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         # Walk Forward Results Table
         c.execute('''
             CREATE TABLE IF NOT EXISTS walk_forward_results (
@@ -112,6 +120,45 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        # --- NEW: Training System Tables ---
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS training_runs (
+                id TEXT PRIMARY KEY,
+                run_type TEXT, 
+                trigger_source TEXT,
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP,
+                status TEXT
+            )
+        ''')
+        
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS symbol_forecasts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT,
+                symbol TEXT,
+                horizon_days INTEGER,
+                expected_return REAL,
+                confidence REAL,
+                regime TEXT,
+                volatility_label TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(run_id) REFERENCES training_runs(id)
+            )
+        ''')
+        
+        # Ensure columns exist (Migration for SQLite)
+        try:
+            c.execute('ALTER TABLE walk_forward_results ADD COLUMN mode TEXT')
+        except: pass
+        try:
+            c.execute('ALTER TABLE walk_forward_results ADD COLUMN trained BOOLEAN')
+        except: pass
+        try:
+            c.execute('ALTER TABLE walk_forward_results ADD COLUMN derived_from INTEGER')
+        except: pass
+        
         conn.commit()
         conn.close()
 
@@ -639,6 +686,178 @@ class Database:
                 return dict(row)
             return None
 
+    def get_config(self, key: str) -> Optional[str]:
+        """Get system config value."""
+        if self.is_mongo:
+            doc = self.db.system_config.find_one({"_id": key})
+            return doc["value"] if doc else None
+        elif self.is_excel:
+            return None # Not implemented for Excel
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('SELECT value FROM system_config WHERE key = ?', (key,))
+            row = c.fetchone()
+            conn.close()
+            return row[0] if row else None
+
+    def set_config(self, key: str, value: str):
+        """Set system config value."""
+        if self.is_mongo:
+            self.db.system_config.update_one(
+                {"_id": key},
+                {"$set": {"value": str(value), "updated_at": datetime.now()}},
+                upsert=True
+            )
+        elif self.is_excel:
+            pass
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('INSERT OR REPLACE INTO system_config (key, value) VALUES (?, ?)', (key, str(value)))
+            conn.commit()
+            conn.close()
+
+    def start_training_run(self, run_type: str, source: str) -> str:
+        """Start a new training run and return its ID."""
+        import uuid
+        run_id = str(uuid.uuid4())
+        started_at = datetime.now()
+        
+        if self.is_mongo:
+            self.db.training_runs.insert_one({
+                "_id": run_id,
+                "run_type": run_type,
+                "trigger_source": source,
+                "started_at": started_at,
+                "status": "running"
+            })
+        elif self.is_excel:
+            pass # Skip for excel
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO training_runs (id, run_type, trigger_source, started_at, status)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (run_id, run_type, source, started_at, "running"))
+            conn.commit()
+            conn.close()
+        return run_id
+
+    def end_training_run(self, run_id: str, status: str = "success"):
+        """Mark a training run as completed."""
+        completed_at = datetime.now()
+        
+        if self.is_mongo:
+            self.db.training_runs.update_one(
+                {"_id": run_id},
+                {"$set": {"completed_at": completed_at, "status": status}}
+            )
+        elif self.is_excel:
+            pass
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('''
+                UPDATE training_runs 
+                SET completed_at = ?, status = ?
+                WHERE id = ?
+            ''', (completed_at, status, run_id))
+            conn.commit()
+            conn.close()
+
+    def save_symbol_forecast(self, run_id: str, symbol: str, horizon: int, expected_return: float, 
+                           confidence: float, regime: str, volatility: str):
+        """Save a single forecast linked to a run."""
+        
+        doc = {
+            "run_id": run_id,
+            "symbol": symbol,
+            "horizon_days": horizon,
+            "expected_return": expected_return,
+            "confidence": confidence,
+            "regime": regime,
+            "volatility_label": volatility,
+            "created_at": datetime.now()
+        }
+        
+        if self.is_mongo:
+             self.db.symbol_forecasts.insert_one(doc)
+        elif self.is_excel:
+             pass
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO symbol_forecasts 
+                (run_id, symbol, horizon_days, expected_return, confidence, regime, volatility_label, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (run_id, symbol, horizon, expected_return, confidence, regime, volatility, datetime.now()))
+            conn.commit()
+            conn.close()
+
+    def get_latest_forecasts(self, symbol: str) -> Dict[int, Dict]:
+        """
+        Get the most recent forecast for EACH horizon for a given symbol.
+        Returns: {10: {return: 0.05, conf: 0.8}, 30: {...}}
+        """
+        if self.is_mongo:
+            # Aggregation pipeline to get latest by horizon
+            pipeline = [
+                {"$match": {"symbol": symbol}},
+                {"$sort": {"created_at": -1}},
+                {"$group": {
+                    "_id": "$horizon_days",
+                    "doc": {"$first": "$$ROOT"}
+                }}
+            ]
+            results = self.db.symbol_forecasts.aggregate(pipeline)
+            final = {}
+            for res in results:
+                h = res["_id"]
+                doc = res["doc"]
+                final[h] = {
+                    "expected_return": doc["expected_return"],
+                    "confidence": doc["confidence"],
+                    "regime": doc["regime"],
+                    "volatility": doc["volatility_label"]
+                }
+            return final
+            
+        elif self.is_excel:
+            return {}
+        else:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            # Window function to get latest per horizon
+            # SQLite 3.25+ supports window functions. 
+            # If primitive sqlite, we might need a different query.
+            # Fallback: SELECT * FROM symbol_forecasts WHERE symbol=? ORDER BY created_at DESC 
+            # and filter in python. Safer for older sqlite.
+            
+            c.execute('''
+                SELECT horizon_days, expected_return, confidence, regime, volatility_label 
+                FROM symbol_forecasts 
+                WHERE symbol = ? 
+                ORDER BY created_at DESC
+            ''', (symbol,))
+            
+            rows = c.fetchall()
+            conn.close()
+            
+            final = {}
+            for row in rows:
+                h, ret, conf, reg, vol = row
+                if h not in final: # First one seen is latest because of ORDER BY DESC
+                    final[h] = {
+                        "expected_return": ret,
+                        "confidence": conf,
+                        "regime": reg,
+                        "volatility": vol
+                    }
+            return final
+
 # =============================================================================
 # Helper Functions (module-level exports)
 # =============================================================================
@@ -728,4 +947,3 @@ def get_market_overview_logic(symbols: list) -> dict:
         return {"overview": [], "error": str(e)}
     
     return {"overview": overview}
-

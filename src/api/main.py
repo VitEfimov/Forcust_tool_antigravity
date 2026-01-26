@@ -4,17 +4,45 @@ from .routes import router
 from ..core.scheduler import start_scheduler, stop_scheduler
 from contextlib import asynccontextmanager
 
+import socket
+import logging
+
+logger = logging.getLogger("uvicorn")
+
+# Global socket lock to hold ownership of "Leader" status
+# Must be global to persist during lifespan yield
+leader_socket = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    start_scheduler()
-    from src.core.monitoring import monitor
-    monitor.log_heartbeat("SystemStartup", "success", {"message": "API started"})
-    # 2. Cleanup Stale Tasks (from previous crashes/redeployments)
-    monitor.check_stale_tasks()
+    global leader_socket
+    is_leader = False
+    
+    try:
+        # Try to acquire Leader Lock by binding a dedicated port
+        # This auto-releases when process exits, handling restarts gracefully.
+        leader_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        leader_socket.bind(("127.0.0.1", 18888))
+        is_leader = True
+        logger.info("Instance acquired Leadership (Port 18888 locked). Scheduler active.")
+    except OSError:
+        is_leader = False
+        logger.warning("Instance is Standby (Leader lock held by another process). Scheduler/Headbeats disabled.")
+        
+    if is_leader:
+        # Only Leader runs background jobs and logs startup
+        start_scheduler()
+        from src.core.monitoring import monitor
+        monitor.log_heartbeat("SystemStartup", "success", {"message": "API started"})
+        # 2. Cleanup Stale Tasks
+        monitor.check_stale_tasks()
+    
     yield
-    # Shutdown
-    stop_scheduler()
+    
+    if is_leader:
+        stop_scheduler()
+        if leader_socket:
+            leader_socket.close()
 
 app = FastAPI(title="Antigravity API", lifespan=lifespan)
 

@@ -10,12 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
-    env:
-      ALLOW_WEEKLY_TRAINING: ${{ secrets.ALLOW_WEEKLY_TRAINING }}
+    # env:
+    #   ALLOW_WEEKLY_TRAINING: ${{ secrets.ALLOW_WEEKLY_TRAINING }}
 
     # Safety: Only run if explicitly enabled in secrets AND it's a scheduled run or intentional dispatch
-    
-      if: env.ALLOW_WEEKLY_TRAINING == 'true'
+    if: ${{ secrets.ALLOW_WEEKLY_TRAINING == 'true' }}
 
     steps:
       - uses: actions/checkout@v4

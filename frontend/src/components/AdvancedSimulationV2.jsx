@@ -6,12 +6,49 @@ import { useSystemStatus } from '../hooks/useSystemStatus';
 
 const AdvancedSimulationV2 = () => {
     const { isBusy, runningTask } = useSystemStatus();
-    const [symbol, setSymbol] = useState('SPY'); // Default to Market (SPY)
-    const [conservative, setConservative] = useState(true); // Default to Conservative (Thinner tails)
-    const [engine, setEngine] = useState('ensemble'); // Default to Ensemble Professional
+    const [symbol, setSymbol] = useState('SPY'); 
+    const [conservative, setConservative] = useState(true); 
+    const [engine, setEngine] = useState('ensemble'); 
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    
+    // Persistence
+    const [jobId, setJobId] = useState(localStorage.getItem('adv_sim_job_id'));
+
+    // Polling Effect
+    React.useEffect(() => {
+        if (!jobId) return;
+        setLoading(true);
+        
+        const poll = setInterval(async () => {
+             try {
+                 const res = await axios.get(`${API_URL}/jobs/${jobId}`);
+                 const job = res.data;
+                 
+                 if (job.status === 'completed') {
+                     clearInterval(poll);
+                     setData(job.result);
+                     setLoading(false);
+                     setJobId(null);
+                     localStorage.removeItem('adv_sim_job_id');
+                 } else if (job.status === 'failed') {
+                     clearInterval(poll);
+                     setLoading(false);
+                     setJobId(null);
+                     localStorage.removeItem('adv_sim_job_id');
+                     setError(job.error || "Simulation Failed");
+                 }
+             } catch (e) {
+                 if (e.response && e.response.status === 404) {
+                     setJobId(null);
+                     localStorage.removeItem('adv_sim_job_id');
+                     setLoading(false);
+                 }
+             }
+        }, 2000);
+        return () => clearInterval(poll);
+    }, [jobId]);
 
     const runSimulation = async (e) => {
         e.preventDefault();
@@ -20,17 +57,17 @@ const AdvancedSimulationV2 = () => {
         setData(null);
 
         try {
-            const response = await axios.get(`${API_URL}/simulation/v2/${symbol}`, {
-                params: { conservative, engine }
+            const res = await axios.post(`${API_URL}/simulation/v2/run`, {
+                symbol, conservative, engine
             });
-            setData(response.data);
+            const newId = res.data.job_id;
+            setJobId(newId);
+            localStorage.setItem('adv_sim_job_id', newId);
         } catch (err) {
-            setError(err.response?.data?.detail || "Simulation failed");
-        } finally {
+            setError(err.message);
             setLoading(false);
         }
     };
-
     // Prepare chart data from paths_sample
     const getChartData = () => {
         if (!data || !data.paths_sample) return [];

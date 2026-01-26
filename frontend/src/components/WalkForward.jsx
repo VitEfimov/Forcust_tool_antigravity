@@ -18,10 +18,14 @@ const WalkForward = () => {
         step: 30,
         use_meta_learner: true
     });
+    
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState(null);
     const [showLogs, setShowLogs] = useState(false);
     const [serverLogs, setServerLogs] = useState([]);
+    
+    // Persistence: effective session management
+    const [jobId, setJobId] = useState(localStorage.getItem('wf_job_id'));
 
     // Helper for safe formatting
     const fmt = (val, dec = 2) => {
@@ -29,71 +33,78 @@ const WalkForward = () => {
         return val.toFixed(dec);
     };
 
-    // SSE: Stream logs when showLogs is true
+    // Robust Polling Effect
     useEffect(() => {
-        let evtSource = null;
+        if (!jobId) return;
 
-        if (showLogs) {
-            // 1. Fetch history first (so we don't miss past logs)
-            axios.get(`${API_URL}/simulation/logs`)
-                .then(res => {
-                    if (res.data && res.data.logs) {
-                        setServerLogs(res.data.logs);
-                    }
+        // If we have a job ID, we are loading/running
+        setLoading(true);
+        
+        // Auto-show logs if persistence found a running job
+        if (serverLogs.length === 0) setShowLogs(true);
+        
+        const poll = setInterval(async () => {
+            try {
+                const res = await axios.get(`${API_URL}/jobs/${jobId}`);
+                const job = res.data;
 
-                    // 2. Connect to Stream for visible updates
-                    evtSource = new EventSource(`${API_URL}/simulation/logs/stream`);
+                // Sync Logs (File based source)
+                if (job.logs && Array.isArray(job.logs)) {
+                    setServerLogs(job.logs);
+                }
 
-                    evtSource.onmessage = (event) => {
-                        // "data: msg" -> default event.data is the msg
-                        const newMsg = event.data;
-                        if (newMsg) {
-                            setServerLogs(prev => [...prev, newMsg]);
-                        }
-                    };
-
-                    evtSource.onerror = (err) => {
-                        console.error("SSE Error:", err);
-                        evtSource.close();
-                    };
-                })
-                .catch(err => console.error("History fetch error:", err));
-
-        }
-
-        return () => {
-            if (evtSource) {
-                evtSource.close();
+                if (job.status === 'completed') {
+                    clearInterval(poll);
+                    setData(job.result);
+                    setLoading(false);
+                    localStorage.removeItem('wf_job_id');
+                    setJobId(null);
+                    addLog(`Job ${jobId.slice(0,8)}... Completed.`, 'WalkForward', 'success');
+                } else if (job.status === 'failed') {
+                    clearInterval(poll);
+                    setLoading(false);
+                    localStorage.removeItem('wf_job_id');
+                    setJobId(null);
+                    const errorMsg = job.error || "Unknown Error";
+                    addLog(`Job Failed: ${errorMsg}`, 'WalkForward', 'error');
+                    alert(`Validation Job Failed: ${errorMsg}`);
+                }
+            } catch (e) {
+                console.error("Polling Error (Job likely missing):", e);
+                // If 404, clear ID
+                if (e.response && e.response.status === 404) {
+                    localStorage.removeItem('wf_job_id');
+                    setJobId(null);
+                    setLoading(false);
+                }
             }
-        };
-    }, [showLogs]);
+        }, 2000); // 2s polling
 
-    // Also poll logs if loading is true (so we see progress even if drawer not open? 
-    // Data won't update unless showLogs is true. Let's force drawer open on run?
-    // User said "after click will see logs". So user initiates view.
-    // If user clicks run, we can auto-open logs? "after click will see logs".
-    // I will auto-open logs on Run.
+        return () => clearInterval(poll);
+    }, [jobId]);
 
     const runPipeline = async () => {
         setLoading(true);
-        // Clear logs locally
         setServerLogs([]);
-        try {
-            await axios.delete(`${API_URL}/simulation/logs`);
-        } catch (e) { }
-
-        setShowLogs(true); // Auto-open logs on run
+        setData(null);
+        
+        // Cleanup old logs if any
+        try { await axios.delete(`${API_URL}/simulation/logs`); } catch(e){}
 
         addLog(`Starting Walk-Forward for ${config.symbol} (H=${config.horizon})...`, 'WalkForward');
 
         try {
             const res = await axios.post(`${API_URL}/models/walk_forward`, config);
-            setData(res.data);
-            addLog(`Completed successfully. Sharpe: ${res.data.metrics.sharpe_ratio.toFixed(2)}`, 'WalkForward', 'success');
+            const newId = res.data.job_id;
+            
+            // Persist ID
+            localStorage.setItem('wf_job_id', newId);
+            setJobId(newId);
+            setShowLogs(true);
+            
         } catch (err) {
-            alert(`Error: ${err.message}`);
-            addLog(`Error running pipeline: ${err.message}`, 'WalkForward', 'error');
-        } finally {
+            alert(`Error starting job: ${err.message}`);
+            addLog(`Error starting pipeline: ${err.message}`, 'WalkForward', 'error');
             setLoading(false);
         }
     };
