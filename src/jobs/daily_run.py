@@ -568,10 +568,7 @@ def run_daily_automation(scheduled_run: bool = False):
         
         
         # Horizons to cover: Base + Derived
-        # STRICT DAILY HORIZONS: 10d, 100d (Task 6)
-        all_horizons = [10, 100]
-        # all_horizons = sorted(list(set(settings.BASE_HORIZONS + list(settings.DERIVED_HORIZONS.keys()))))
-        
+        all_horizons = sorted(list(set(settings.BASE_HORIZONS + list(settings.DERIVED_HORIZONS.keys()))))
         
         # Build Task List
         for sym in all_targets:
@@ -622,12 +619,12 @@ def run_daily_automation(scheduled_run: bool = False):
         
         # New: Global Regime Tracker
         GLOBAL_MARKET_REGIME = "Unknown"
-
         total_configs = len(ANALYSIS_CONFIGS)
         
-        # Optimization: Preload Last Results for Watchlist Symbols to avoid DB hit per horizon
-        # We cache by {symbol: {horizon: result_dict}}
-        WF_CACHE = {}
+        # Optimization: Local Symbol Cache (cleared when symbol changes)
+        # Stores {horizon: wf_data_result} for the current symbol only.
+        symbol_cache = {}
+        current_symbol_context = None
         
         for i, config in enumerate(ANALYSIS_CONFIGS):
             target_symbol = config['symbol']
@@ -635,21 +632,20 @@ def run_daily_automation(scheduled_run: bool = False):
             mode = config['mode']
             derived_source = config['derived_from']
             
-            # 1. Populate Cache if missing
-            if target_symbol not in WF_CACHE:
-                logger.info(f"Preloading history for {target_symbol}...")
-                try:
-                    # db.get_history returns list of dicts for all horizons
-                    history = db.get_history(target_symbol)
-                    WF_CACHE[target_symbol] = {}
-                    if history:
-                        for rec in history:
-                            h = rec.get('horizon')
-                            if h and h not in WF_CACHE[target_symbol]:
-                                # Store the latest (first one encountered since sorted desc)
-                                WF_CACHE[target_symbol][h] = rec
-                except Exception as e:
-                    logger.warning(f"Failed to preload cache for {target_symbol}: {e}")
+            # Reset cache if we switched symbols
+            if current_symbol_context != target_symbol:
+                symbol_cache = {}
+                current_symbol_context = target_symbol
+                # Preload base results for Derived Mode if needed?
+                # Actually, if we process horizons in order (Base then Derived), 
+                # we will naturally populate symbol_cache with Base results first.
+                # But parallel/sorted order might not guarantee Base First. 
+                # settings.BASE_HORIZONS = [10, 100]. Derived 30 from 10.
+                # If sorted(all_horizons) -> 10, 30, 60, 100, 365...
+                # Yes, 10 comes before 30. 100 comes before 365.
+                # So we can just rely on the loop order and `symbol_cache`.
+                logger.info(f"Switched context to {target_symbol}. Cache cleared.")
+
             
             # --- COST CONTROL LOGIC (Fix 5) ---
             # Determine Summary Mode for Analyst
@@ -690,29 +686,14 @@ def run_daily_automation(scheduled_run: bool = False):
                         step=config['step'],
                         use_meta=config['meta']
                     )
-                    wf_data['trained'] = True
+                    if wf_data: 
+                        wf_data['trained'] = True
+                        symbol_cache[horizon] = wf_data # Store for derived
                 
                 elif mode == settings.AnalysisMode.INFERENCE:
                     # 2. INFERENCE ONLY PATH
-                    # Check if model exists, if not, could fallback to training or skip.
-                    # Ideally, reuse the metadata from the last successful run in DB.
-                    last_run = db.get_latest_walk_forward_result(target_symbol)
-                    
-                    # For now, just re-run lightweight wf if possible, or skip training step inside step_2?
-                    # The current step_2_walk_forward does training AND inference.
-                    # We need to ideally refactor step_2 to take a 'train=False' flag.
-                    # Or, since we want to avoid refactoring generic logic too much, 
-                    # we can rely on ModelRegistry.load() inside step_2 (if it did that).
-                    # But step_2 blindly re-trains typically.
-                    
-                    # Short-term hack: Run step_2 but with minimal window? No, that ruins model.
-                    # Correct way: Re-use 'step_2' but relies on cache? No.
-                    # We will Skip ML for now and use Last Known Valid Forecast + Price Update?
-                    # Or better: We assume models are saved on disk. Run Inference.
-                    
-                    # Since we cannot easily "just inference" without refactoring `WalkForwardForecaster.run()`,
-                    # We will try to fetch the LATEST VALID DB Result and just update the price scaling.
-                    # This effectively is "0 compute".
+                    # Reuse the metadata from the last successful run in DB.
+                    last_run = db.get_latest_walk_forward_result(target_symbol, horizon=horizon)
                     
                     if last_run and last_run.get('reliability_score'):
                         # Reuse Metadata
@@ -724,84 +705,81 @@ def run_daily_automation(scheduled_run: bool = False):
                         df_latest = loader.get_data(target_symbol)
                         current_price = df_latest['Close'].iloc[-1] if not df_latest.empty else 0
                         
-                        # We use the OLD model's prediction relative to OLD price? No.
-                        # We need a new prediction.
-                        # IF we cannot run inference easily, we default to:
-                        # "Neutral" drift from current price + Metadata reuse.
-                        wf_data = {
-                            "dates": datetime.now(),
-                            "ml_forecast_price": current_price, # Neutral
-                            "reliability_score": rel_score,
-                            "regime": regime,
-                            "current_price": current_price,
-                            "trained": False
-                        }
+                        if current_price <= 0:
+                             wf_data = None
+                        else:
+                            wf_data = {
+                                "dates": datetime.now(),
+                                "ml_forecast_price": current_price, # Neutral
+                                "reliability_score": rel_score,
+                                "regime": regime,
+                                "current_price": current_price,
+                                "trained": False
+                            }
+                            symbol_cache[horizon] = wf_data
                     else:
-                        # No history? Skip or basic fallback
-                        wf_data = {
-                            "dates": datetime.now(),
-                            "ml_forecast_price": 0,
-                            "reliability_score": 0.5,
-                            "regime": "Unknown",
-                            "current_price": 0,
-                            "trained": False
-                        }
+                        wf_data = None
                         
                 elif mode == settings.AnalysisMode.DERIVED:
                     # 3. DERIVED MODE (Scaled from Base Horizon)
-                    # Optimization: Use pre-fetched result from CACHE
                     base_h = derived_source
                     
-                    # Fetch from Cache
+                    # Fetch from Local Cache (fresh from this run)
                     base_res = None
-                    if target_symbol in WF_CACHE and base_h in WF_CACHE[target_symbol]:
-                        base_res = WF_CACHE[target_symbol][base_h]
+                    if base_h in symbol_cache:
+                         logger.info(f"Using in-memory base result for {target_symbol} (H={base_h})")
+                         # Convert wf_data dict to a format usable? 
+                         # symbol_cache stores wf_data dict.
+                         # Need to map keys properly:
+                         # wf_data keys: ml_forecast_price, reliability_score, regime
+                         cached_data = symbol_cache[base_h]
+                         base_res = {
+                             'prediction_price': cached_data['ml_forecast_price'],
+                             'reliability_score': cached_data['reliability_score'],
+                             'regime_label': cached_data['regime']
+                         }
                     else:
                         # Fallback to DB if not in cache (e.g. if base horizon failed to compute/save in this run?)
-                        # Or if we just didn't catch it.
-                        base_res = db.get_latest_walk_forward_result(target_symbol, base_h)
+                        logger.info(f"Cache miss for {target_symbol} (H={base_h}). Fetching from DB.")
+                        base_res = db.get_latest_walk_forward_result(target_symbol, horizon=base_h)
 
                     df_latest = loader.get_data(target_symbol)
                     current_price = df_latest['Close'].iloc[-1] if not df_latest.empty else 0
                     
-                    if base_res:
+                    if base_res and current_price > 0:
                         base_pred = base_res.get('prediction_price', current_price)
                         base_conf = base_res.get('reliability_score', 0.5)
                         base_regime = base_res.get('regime_label', 'Unknown')
                         
-                        if current_price > 0:
-                            base_log_ret = np.log(base_pred / current_price)
-                            target_h = horizon
-                            
-                            # 1. Scaled Price (Fix 3: Log-Return Scaling with Sqrt)
-                            # task5_db.md: scaled_return = base_return * sqrt(target_horizon / base_horizon)
-                            import math
-                            ratio = target_h / base_h
-                            scaled_log_ret = base_log_ret * math.sqrt(ratio)
-                            
-                            final_pred = current_price * np.exp(scaled_log_ret)
-                            
-                            # Fix 5: Enforce derived != spot price (Guard)
-                            if abs(final_pred - current_price) < 1e-6:
-                                logger.warning(f"Derived forecast for {target_symbol} collapsed to spot price.")
-                            
-                            # 2. Volatility Scaling for Confidence (Fix 4: Confidence Decay)
-                            # Task says: exp(-0.015 * ratio)
-                            decay = np.exp(-0.015 * ratio)
-                            scaled_conf = base_conf * decay
-                            
-                            wf_data = {
-                                "dates": datetime.now(),
-                                "ml_forecast_price": final_pred,
-                                "reliability_score": scaled_conf,
-                                "regime": base_regime,
-                                "current_price": current_price,
-                                "trained": False,
-                                "confidence_decay": decay,
-                                "summary_mode": summary_mode # Pass Cost Control
-                            }
-                        else:
-                             wf_data = None
+                        base_log_ret = np.log(base_pred / current_price)
+                        target_h = horizon
+                        
+                        # 1. Scaled Price (Fix 3: Log-Return Scaling with Sqrt)
+                        import math
+                        ratio = target_h / base_h
+                        scaled_log_ret = base_log_ret * math.sqrt(ratio)
+                        
+                        final_pred = current_price * np.exp(scaled_log_ret)
+                        
+                        # Fix 5: Enforce derived != spot price (Guard)
+                        if abs(final_pred - current_price) < 1e-6:
+                            logger.warning(f"Derived forecast for {target_symbol} collapsed to spot price.")
+                        
+                        # 2. Volatility Scaling for Confidence (Fix 4: Confidence Decay)
+                        decay = np.exp(-0.015 * ratio)
+                        scaled_conf = base_conf * decay
+                        
+                        wf_data = {
+                            "dates": datetime.now(),
+                            "ml_forecast_price": final_pred,
+                            "reliability_score": scaled_conf,
+                            "regime": base_regime,
+                            "current_price": current_price,
+                            "trained": False,
+                            "confidence_decay": decay,
+                            "summary_mode": summary_mode
+                        }
+                        symbol_cache[horizon] = wf_data
                     else:
                         wf_data = None
 

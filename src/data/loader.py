@@ -47,12 +47,17 @@ class DataLoader:
             ticker = yf.Ticker(symbol)
             df = ticker.history(start=start_date, end=end_date)
             
-            if df.empty:
+            if df is None or df.empty:
                 print(f"No data found for {symbol}")
                 return pd.DataFrame()
 
             # Clean up columns (remove Dividends, Stock Splits if present, keep OHLCV)
             keep_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+            # Ensure df is a DataFrame before column access
+            if not isinstance(df, pd.DataFrame):
+                 print(f"Unexpected data type for {symbol}: {type(df)}")
+                 return pd.DataFrame()
+                 
             df = df[[c for c in keep_cols if c in df.columns]]
             
             # Ensure index is timezone-naive for simplicity in this skeleton
