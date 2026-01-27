@@ -107,7 +107,16 @@ def _compute_market_overview(symbols: List[str]) -> dict:
     
     enriched_overview = []
     
+    # FIX 1: Create Loader ONCE outside loop
+    loader = DataLoader(settings.DATA_CACHE_DIR)
+    
     for item in overview_list:
+        # FIX: Initialize Defaults to prevent UI breaking
+        item['risk_label'] = "N/A"
+        item['volatility_outlook'] = "Unknown"
+        item['trend_label'] = "Unknown" # Renamed from 'regime' (Fix 4)
+        item['forecasts'] = {}
+        
         symbol = item['symbol']
         try:
             # We already validated data exists in get_market_overview_logic
@@ -115,7 +124,6 @@ def _compute_market_overview(symbols: List[str]) -> dict:
             # Ideally we reuse the data we just fetched? get_market_overview_logic just gets price.
             # We need history for volatility.
             
-            loader = DataLoader(settings.DATA_CACHE_DIR)
             # Fetch last 90 days for trend/volatility
             # "if day is saturday or sunday use data from friday" -> yfinance history() does this mostly auto
             # but we will just take the last available candle.
@@ -132,10 +140,11 @@ def _compute_market_overview(symbols: List[str]) -> dict:
                 price = df['Close'].iloc[-1]
                 
                 # Classify Risk/Trend
+                # Classify Risk/Trend
                 if np.isnan(vol_30d):
                     item['risk_label'] = "N/A"
                     item['volatility_outlook'] = "Insufficient Data"
-                    item['regime'] = "Unknown"
+                    item['trend_label'] = "Unknown"
                 elif vol_30d > 40:
                     item['risk_label'] = "High Volatility"
                     item['volatility_outlook'] = "Unstable"
@@ -148,9 +157,9 @@ def _compute_market_overview(symbols: List[str]) -> dict:
                     
                 if not np.isnan(vol_30d):
                     if price > sma_20:
-                        item['regime'] = "Uptrend"
+                        item['trend_label'] = "Uptrend"
                     else:
-                        item['regime'] = "Downtrend"
+                        item['trend_label'] = "Downtrend"
                     
                 # Simple Forecast using Log-Normal Geometric Brownian Motion (Analytical Median)
                 # This avoids unrealistic explosion from naive compounding.
@@ -176,7 +185,7 @@ def _compute_market_overview(symbols: List[str]) -> dict:
                     drift = np.nan
                 
                 item['forecasts'] = {}
-                for h in [10, 30, 100, 365, 547, 730]:
+                for h in [10, 30, 100, 200, 365]:
                     if np.isnan(drift):
                         pass # item['forecasts'][str(h)] = None
                     else:
@@ -199,17 +208,18 @@ def _compute_market_overview(symbols: List[str]) -> dict:
                                 ml_pct = (pred - start_p) / start_p * 100
                                 item['forecasts'][str(h)] = round(ml_pct, 2)
                 except Exception as ex:
-                    # Fallback to analytical if DB fails
+                    # FIX: Log the error
+                    print(f"DB Override Error for {symbol}: {ex}")
                     pass
 
             else:
                 item['risk_label'] = "N/A"
-                item['regime'] = "Unknown"
+                item['trend_label'] = "Unknown"
                 item['forecasts'] = {}
         
         except Exception as e:
             item['risk_label'] = "Error"
-            item['regime'] = "Error"
+            item['trend_label'] = "Error"
             
         enriched_overview.append(item)
     

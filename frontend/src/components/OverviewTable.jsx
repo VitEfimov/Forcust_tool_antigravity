@@ -15,14 +15,13 @@ const OverviewTable = ({ data }) => {
                         <th style={{ padding: '0.8rem', textAlign: 'right' }}>Change</th>
                         <th style={{ padding: '0.8rem', textAlign: 'right' }}>Change %</th>
                         <th style={{ padding: '0.8rem', textAlign: 'center' }}>Signal</th>
-                        <th style={{ padding: '0.8rem', textAlign: 'center' }}>Regime</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'center' }}>Trend</th>
                         <th style={{ padding: '0.8rem', textAlign: 'center' }}>Risk</th>
                         <th style={{ padding: '0.8rem', textAlign: 'right' }}>10d</th>
                         <th style={{ padding: '0.8rem', textAlign: 'right' }}>30d</th>
                         <th style={{ padding: '0.8rem', textAlign: 'right' }}>100d</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>200d</th>
                         <th style={{ padding: '0.8rem', textAlign: 'right' }}>365d</th>
-                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>547d</th>
-                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>730d</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -59,8 +58,8 @@ const OverviewTable = ({ data }) => {
                                     {item.signal || 'neutral'}
                                 </span>
                             </td>
-                            <td style={{ padding: '0.8rem', textAlign: 'center', fontWeight: 'bold', color: item.regime === 'Uptrend' ? '#66ff66' : item.regime === 'Downtrend' ? '#ff6666' : '#aaa' }}>
-                                {item.regime}
+                            <td style={{ padding: '0.8rem', textAlign: 'center', fontWeight: 'bold', color: item.trend_label === 'Uptrend' ? '#66ff66' : item.trend_label === 'Downtrend' ? '#ff6666' : '#aaa' }}>
+                                {item.trend_label}
                             </td>
                             <td style={{ padding: '0.8rem', textAlign: 'center', color: '#ccc' }}>
                                 {item.risk_label}
@@ -75,13 +74,10 @@ const OverviewTable = ({ data }) => {
                                 {item.forecast_100d_pct != null ? `${item.forecast_100d_pct > 0 ? '+' : ''}${item.forecast_100d_pct.toFixed(2)}%` : '-'}
                             </td>
                             <td style={{ padding: '0.8rem', textAlign: 'right' }}>
+                                {item.forecast_200d_pct != null ? `${item.forecast_200d_pct > 0 ? '+' : ''}${item.forecast_200d_pct.toFixed(2)}%` : '-'}
+                            </td>
+                            <td style={{ padding: '0.8rem', textAlign: 'right' }}>
                                 {item.forecast_365d_pct != null ? `${item.forecast_365d_pct > 0 ? '+' : ''}${item.forecast_365d_pct.toFixed(2)}%` : '-'}
-                            </td>
-                            <td style={{ padding: '0.8rem', textAlign: 'right' }}>
-                                {item.forecast_547d_pct != null ? `${item.forecast_547d_pct > 0 ? '+' : ''}${item.forecast_547d_pct.toFixed(2)}%` : '-'}
-                            </td>
-                            <td style={{ padding: '0.8rem', textAlign: 'right' }}>
-                                {item.forecast_730d_pct != null ? `${item.forecast_730d_pct > 0 ? '+' : ''}${item.forecast_730d_pct.toFixed(2)}%` : '-'}
                             </td>
                         </tr>
                     ))}

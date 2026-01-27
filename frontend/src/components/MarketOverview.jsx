@@ -110,7 +110,7 @@ const MarketOverview = () => {
                                             ${idx.price?.toLocaleString()}
                                         </div>
                                         <div style={{ fontSize: '0.8rem', color: '#888' }}>
-                                            Trend: <span style={{ color: '#fff' }}>{idx.regime || 'Neutral'}</span>
+                                            Trend: <span style={{ color: '#fff' }}>{idx.trend_label || 'Neutral'}</span>
                                         </div>
                                     </div>
                                 ))}
