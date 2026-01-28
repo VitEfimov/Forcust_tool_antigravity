@@ -65,24 +65,27 @@ const OverviewTable = ({ data }) => {
                                 {item.risk_label}
                             </td>
                             <td style={{ padding: '0.8rem', textAlign: 'right' }}>
-                                {item.forecast_10d_pct != null ? `${item.forecast_10d_pct > 0 ? '+' : ''}${item.forecast_10d_pct.toFixed(2)}%` : '-'}
+                                {item.forecast_10d_pct != null ? `${item.forecast_10d_pct > 0 ? '+' : ''}${item.forecast_10d_pct.toFixed(2)}%` : '--'}
                             </td>
                             <td style={{ padding: '0.8rem', textAlign: 'right' }}>
-                                {item.forecast_30d_pct != null ? `${item.forecast_30d_pct > 0 ? '+' : ''}${item.forecast_30d_pct.toFixed(2)}%` : '-'}
+                                {item.forecast_30d_pct != null ? `${item.forecast_30d_pct > 0 ? '+' : ''}${item.forecast_30d_pct.toFixed(2)}%` : '--'}
                             </td>
                             <td style={{ padding: '0.8rem', textAlign: 'right' }}>
-                                {item.forecast_100d_pct != null ? `${item.forecast_100d_pct > 0 ? '+' : ''}${item.forecast_100d_pct.toFixed(2)}%` : '-'}
+                                {item.forecast_100d_pct != null ? `${item.forecast_100d_pct > 0 ? '+' : ''}${item.forecast_100d_pct.toFixed(2)}%` : '--'}
                             </td>
                             <td style={{ padding: '0.8rem', textAlign: 'right' }}>
-                                {item.forecast_200d_pct != null ? `${item.forecast_200d_pct > 0 ? '+' : ''}${item.forecast_200d_pct.toFixed(2)}%` : '-'}
+                                {item.forecast_200d_pct != null ? `${item.forecast_200d_pct > 0 ? '+' : ''}${item.forecast_200d_pct.toFixed(2)}%` : '--'}
                             </td>
                             <td style={{ padding: '0.8rem', textAlign: 'right' }}>
-                                {item.forecast_365d_pct != null ? `${item.forecast_365d_pct > 0 ? '+' : ''}${item.forecast_365d_pct.toFixed(2)}%` : '-'}
+                                {item.forecast_365d_pct != null ? `${item.forecast_365d_pct > 0 ? '+' : ''}${item.forecast_365d_pct.toFixed(2)}%` : '--'}
                             </td>
                         </tr>
                     ))}
                 </tbody>
             </table>
+            <div style={{ padding: '10px', fontSize: '0.8rem', color: '#666', fontStyle: 'italic', textAlign: 'right' }}>
+                *Derived Horizons (30d, 200d, 365d) are estimated from base models. Run Deep Dive for full Monte Carlo simulation.
+            </div>
         </div>
     );
 };

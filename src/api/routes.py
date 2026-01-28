@@ -233,6 +233,9 @@ def _compute_market_overview(symbols: List[str]) -> dict:
                 else:
                     item['forecasts'][str(h)] = None
                     item[f'forecast_{h}d_pct'] = None
+                    
+                # Explicit Source Label
+                item['forecast_source'] = "overview_estimate"
 
         except Exception as e:
             item['risk_label'] = "Error"
