@@ -92,8 +92,157 @@ def get_simulation_logs():
 @router.delete("/simulation/logs")
 def clear_simulation_logs():
     SIMULATION_LOGS.clear()
-    return {"status": "cleared"}
 def _compute_market_overview(symbols: List[str]) -> dict:
+    """
+    Internal function to compute market overview. 
+    Refactored to enforce Strict Horizon Contracts [10, 30, 100, 200, 365].
+    """
+    
+    # 2. Get Base Data (Price, Change) from batch fetch
+    base_data = get_market_overview_logic(symbols)
+    overview_list = base_data.get("overview", [])
+    
+    enriched_overview = []
+    
+    # Create Loader ONCE outside loop
+    loader = DataLoader(settings.DATA_CACHE_DIR)
+    
+    from src.core.database import get_db
+    db = get_db()
+    
+    # Strict Horizons and Logic Maps
+    VALID_HORIZONS = [10, 30, 100, 200, 365]
+    DERIVED_MAP = {30: 10, 200: 100, 365: 100}
+
+    for item in overview_list:
+        # Initialize Defaults
+        item['risk_label'] = "N/A"
+        item['volatility_outlook'] = "Unknown"
+        item['trend_label'] = "Unknown" 
+        item['forecasts'] = {}
+        
+        symbol = item['symbol']
+        try:
+            # Fetch last 120 days for trend/volatility (enough for 100d trend if needed)
+            df = loader.get_data(symbol, start_date=(datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d"))
+            
+            # --- ANALYTICAL FALLBACK CALCULATIONS ---
+            drift = np.nan
+            if not df.empty:
+                # Calculate simple Volatility
+                returns = df['Close'].pct_change().dropna()
+                if len(returns) > 30:
+                    vol_30d = returns.tail(30).std() * np.sqrt(252) * 100
+                else:
+                    vol_30d = returns.std() * np.sqrt(252) * 100
+                    
+                # Trend
+                sma_20 = df['Close'].tail(20).mean() if len(df) >= 20 else df['Close'].mean()
+                price = item.get('price', df['Close'].iloc[-1])
+                
+                # Classify Risk/Trend
+                if np.isnan(vol_30d):
+                    item['risk_label'] = "N/A"
+                    item['volatility_outlook'] = "Insufficient Data"
+                    item['trend_label'] = "Unknown"
+                elif vol_30d > 40:
+                    item['risk_label'] = "High Volatility"
+                    item['volatility_outlook'] = "Unstable"
+                elif vol_30d < 15:
+                    item['risk_label'] = "Low Volatility"
+                    item['volatility_outlook'] = "Stable"
+                else:
+                    item['risk_label'] = "Moderate"
+                    item['volatility_outlook'] = "Normal"
+                    
+                if not np.isnan(vol_30d):
+                    if price > sma_20:
+                        item['trend_label'] = "Uptrend"
+                    else:
+                        item['trend_label'] = "Downtrend"
+                    
+                # Drift parameter for analytical fallback
+                mu = returns.mean()
+                sigma = returns.std()
+                raw_drift = mu - 0.5 * (sigma ** 2)
+                
+                if not np.isnan(raw_drift):
+                    ann_drift = raw_drift * 252
+                    # Cap between -20% and +30% annualized drift (Strict Caps)
+                    capped_ann_drift = max(-0.20, min(0.30, ann_drift))
+                    drift = capped_ann_drift / 252
+            
+            # --- LOAD ML OVERRIDES ---
+            db_forecasts = db.get_history(symbol)
+            ml_overrides_pct = {} # Map h -> pct
+            
+            # STRICT CONTRACT: ML only for Base Horizons (10, 100). 
+            # Stale DB entries for 30/200/365 must be ignored to force derivation.
+            BASE_HORIZONS = {10, 100}
+            
+            if db_forecasts:
+                for f in db_forecasts:
+                    h = f.get('horizon')
+                    pred = f.get('prediction')
+                    start_p = f.get('start_price')
+                    
+                    # Only accept strictly valid BASE horizons
+                    if h in BASE_HORIZONS and pred is not None and start_p and start_p > 0:
+                         ml_pct = (pred - start_p) / start_p * 100
+                         # Ignore exact 0.0 or very small values (implies failure/flatlining)
+                         if abs(ml_pct) > 0.001:
+                             ml_overrides_pct[h] = ml_pct
+            
+            # --- GENERATE FORECASTS ---
+            base_results = {}
+            for h in VALID_HORIZONS:
+                final_pct = None
+                
+                # 1. Direct ML Override (Base or Pre-calculated)
+                if h in ml_overrides_pct:
+                    final_pct = ml_overrides_pct[h]
+                    
+                # 2. Derived from Base (ML or Analytical)
+                elif h in DERIVED_MAP:
+                    base_h = DERIVED_MAP[h]
+                    # Check base_results first (computed in previous iterations)
+                    base_pct = base_results.get(base_h)
+                    
+                    if base_pct is not None:
+                        # Convert to log, scale, convert back
+                        base_log = np.log(1 + base_pct/100)
+                        scale = h / base_h
+                        derived_log = base_log * scale
+                        final_pct = (np.exp(derived_log) - 1) * 100
+                
+                # 3. Analytical Fallback
+                if final_pct is None and not np.isnan(drift):
+                    # Apply damping logic: 1 / (1 + h/60)
+                    decay_factor = 1.0 / (1.0 + (h / 60.0))
+                    analytical_log = drift * h * decay_factor
+                    final_pct = (np.exp(analytical_log) - 1) * 100
+
+                # Store Base Results for Deviation
+                if h in BASE_HORIZONS:
+                    base_results[h] = final_pct
+
+                # Store
+                if final_pct is not None:
+                    item['forecasts'][str(h)] = round(final_pct, 2)
+                    item[f'forecast_{h}d_pct'] = round(final_pct, 2)
+                else:
+                    item['forecasts'][str(h)] = None
+                    item[f'forecast_{h}d_pct'] = None
+
+        except Exception as e:
+            item['risk_label'] = "Error"
+            # print(f"Error processing {symbol}: {e}")
+            
+        enriched_overview.append(item)
+    
+    result = {"overview": enriched_overview}
+    return result
+def _compute_market_overview_deprecated(symbols: List[str]) -> dict:
     """Internal function to compute market overview. Checks local file cache first."""
     
 
@@ -211,6 +360,10 @@ def _compute_market_overview(symbols: List[str]) -> dict:
                     # FIX: Log the error
                     print(f"DB Override Error for {symbol}: {ex}")
                     pass
+                
+                # Flatten forecasts for Frontend (Critical for OverviewTable)
+                for h_key, val in item['forecasts'].items():
+                    item[f'forecast_{h_key}d_pct'] = val
 
             else:
                 item['risk_label'] = "N/A"
@@ -405,7 +558,7 @@ def get_watchlist_overview():
         raise HTTPException(status_code=500, detail=str(e))
 
 @timed_cache(refresh_hours=[10, 12, 14, 16])
-def _compute_full_forecast(symbol: str) -> dict:
+def _compute_full_forecast_deprecated(symbol: str) -> dict:
     """Cached internal forecast computation."""
     loader = DataLoader(settings.DATA_CACHE_DIR)
     df = loader.get_data(symbol)
@@ -478,6 +631,21 @@ def _compute_full_forecast(symbol: str) -> dict:
             except:
                 pass
         
+        # 1b. Fallback: Analytical Drift if ML is missing (Fixes Flat Forecast Bug)
+        if lgbm_log_ret == 0.0:
+            # Calculate simple geometric drift based on recent history
+            # We use the full dataset for drift to be robust
+            mu = returns.mean()
+            sigma = returns.std()
+            # Annualized drift
+            raw_ann_drift = (mu - 0.5 * sigma**2) * 252
+            # Cap it reasonable (e.g. -20% to +30%)
+            ann_drift = max(-0.20, min(0.30, raw_ann_drift))
+            daily_drift = ann_drift / 252
+            
+            # Scale by horizon
+            lgbm_log_ret = daily_drift * h
+
         # 2. Deep Learning (Transformer) - Placeholder for now
         trans_log_ret = 0.0
         
@@ -485,11 +653,32 @@ def _compute_full_forecast(symbol: str) -> dict:
         # Map regime label to 0/1 (Bear/Bull)
         regime_code = 1 if "Bear" not in regime_label and "High Vol" not in regime_label else 0
         
+        # Fix: Scale trend adjustment by horizon too (assuming trend_slope is daily-ish or needs scaling)
+        # Actually EnsembleModel treats inputs as "signals". 
+        # If we want the final output to be "Horizon Return", the inputs should be "Horizon Return".
+        # We already scaled lgbm_log_ret.
+        
+        # 1. Normalize Trend Slope (Price Slope -> Return Slope)
+        # Kalman slope is in $ units/day. Divide by price to get %/day.
+        if current_price > 0:
+            norm_trend_slope = trend_slope / current_price
+        else:
+            norm_trend_slope = 0.0
+            
+        # 2. Apply Decay for Long Horizons (Trends don't last forever)
+        # Decay factor = 1 / log10(h) or similar. Let's use 1 / (1 + h/30)
+        # For h=10: 1/1.33 = 0.75
+        # For h=100: 1/4.33 = 0.23
+        decay_factor = 1.0 / (1.0 + (h / 60.0))
+        
+        # 3. Scale by Horizon
+        scaled_trend_slope = (norm_trend_slope * h) * decay_factor
+
         final_log_ret = ensemble.predict(
             lgbm_pred=lgbm_log_ret,
             transformer_pred=trans_log_ret,
             current_regime=regime_code,
-            trend_slope=trend_slope,
+            trend_slope=scaled_trend_slope, # Pass scaled slope
             volatility=vol_annual
         )
         
@@ -531,6 +720,224 @@ def _compute_full_forecast(symbol: str) -> dict:
         "regime": regime_label,
         "history": history,
         "forecasts": forecasts
+    }
+
+@timed_cache(refresh_hours=[10, 12, 14, 16])
+def _compute_full_forecast(symbol: str) -> dict:
+    """
+    Cached internal forecast computation.
+    Enforces Strict Horizon Logic:
+    - Base: 10d, 100d (ML Trained)
+    - Derived: 30d (from 10), 200d, 365d (from 100)
+    """
+    loader = DataLoader(settings.DATA_CACHE_DIR)
+    df = loader.get_data(symbol)
+    
+    if df.empty:
+        raise ValueError("Symbol data not found")
+        
+    # Initialize models
+    registry = ModelRegistry()
+    from src.features.pipeline import FeaturePipeline
+    pipeline = FeaturePipeline()
+    
+    # Get recent data for context
+    recent = df.tail(30).reset_index()
+    history = []
+    for _, row in recent.iterrows():
+        history.append({
+            "date": row['Date'].strftime("%Y-%m-%d"),
+            "price": float(row['Close']),
+            "volume": int(row['Volume']) if 'Volume' in row else 0
+        })
+        
+    current_price = float(df['Close'].iloc[-1])
+    returns = df['Close'].pct_change().dropna()
+    
+    # --- 1. HMM Regime Detection (Optimized) ---
+    from src.models.hmm import RegimeDetector
+    hmm = RegimeDetector()
+    hmm_path = Path(settings.MODELS_DIR) / f"hmm_{symbol}.joblib"
+    
+    regime_idx = 0
+    if hmm_path.exists():
+        try:
+            hmm.load(str(hmm_path))
+            regime_idx = int(hmm.predict(returns)[-1])
+        except:
+             # Fallback if load fails
+             try:
+                 hmm.fit(returns)
+                 regime_idx = int(hmm.predict(returns)[-1])
+             except: pass
+    else:
+        # Train on fly and save for next time
+        try:
+            hmm.fit(returns)
+            hmm.save(str(hmm_path))
+            regime_idx = int(hmm.predict(returns)[-1])
+        except:
+            pass
+            
+    regime_label = hmm.get_regime_label(regime_idx)
+    
+    # --- 2. Shared Components (Trend, Vol) ---
+    from src.models.kalman_filter import KalmanTrend
+    from src.models.garch_volatility import GarchModel
+    from src.models.monte_carlo import Simulator
+    from src.models.ensemble import EnsembleModel
+    
+    # A. Kalman Trend
+    kt = KalmanTrend()
+    kt.fit_transform(df['Close'])
+    trend_data = kt.get_current_state()
+    trend_slope_price = trend_data['trend_slope'] # Price units
+    
+    # Normalize Trend (Price Slope -> % Slope)
+    if current_price > 0:
+        norm_trend_slope = trend_slope_price / current_price
+    else:
+        norm_trend_slope = 0.0
+
+    # B. GARCH Volatility
+    garch = GarchModel()
+    try:
+        garch.fit(returns)
+        vol_annual = garch.predict(horizon=30)
+    except:
+        vol_annual = returns.std() * np.sqrt(252)
+        
+    # C. Ensemble
+    ensemble = EnsembleModel()
+    
+    # --- 3. Horizon Logic ---
+    horizons = [10, 30, 100, 200, 365] # Strict Contract
+    base_horizons = {10, 100}
+    derived_map = {
+        30: 10,
+        200: 100,
+        365: 100
+    }
+    
+    forecasts = []
+    base_forecasts_log = {} # Store log_ret for base horizons
+    
+    # Analytical Drift Fallback Setup
+    mu = returns.mean()
+    sigma = returns.std()
+    raw_ann_drift = (mu - 0.5 * sigma**2) * 252
+    ann_drift = max(-0.20, min(0.30, raw_ann_drift))
+    daily_drift = ann_drift / 252
+
+    # Pass 1: Base Horizons
+    for h in base_horizons:
+        model = registry.load_forecast_model(symbol, h)
+        lgbm_log_ret = 0.0
+        
+        if model:
+            try:
+                X_inf = pipeline.get_inference_data(df)
+                lgbm_log_ret = model.predict(X_inf)[0]
+            except:
+                lgbm_log_ret = 0.0
+        
+        # Fallback if model missing or failed
+        if lgbm_log_ret == 0.0:
+             lgbm_log_ret = daily_drift * h
+             
+        base_forecasts_log[h] = lgbm_log_ret
+
+    # Pass 2: Generate All Forecasts
+    for h in horizons:
+        is_derived = h not in base_horizons
+        
+        if not is_derived:
+            lgbm_log_ret = base_forecasts_log[h]
+        else:
+            # Derive
+            base_h = derived_map[h]
+            base_val = base_forecasts_log.get(base_h, 0.0)
+            
+            # Scale linearly (assuming log returns scale with time)
+            scale = h / base_h
+            lgbm_log_ret = base_val * scale
+
+        # --- FINAL ENSEMBLE ---
+        regime_code = 1 if "Bear" not in regime_label and "High Vol" not in regime_label else 0
+        
+        # Damping for long horizons
+        decay_factor = 1.0 / (1.0 + (h / 60.0))
+        scaled_trend_slope = (norm_trend_slope * h) * decay_factor
+        
+        # Hard Cap on Trend Influence (Safety)
+        scaled_trend_slope = max(-0.10, min(0.10, scaled_trend_slope))
+
+        trans_log_ret = 0.0 # Transformer placeholder
+
+        final_log_ret = ensemble.predict(
+            lgbm_pred=lgbm_log_ret,
+            transformer_pred=trans_log_ret,
+            current_regime=regime_code,
+            trend_slope=scaled_trend_slope,
+            volatility=vol_annual
+        )
+        
+        ml_forecast_pct = (np.exp(final_log_ret) - 1) * 100
+        
+        # --- MONTE CARLO (Drift Corrected) ---
+        # Drift = Forecast Return / Horizon
+        mc_drift_daily = final_log_ret / h
+        
+        # Determine Simulations based on Tier
+        n_sims = settings.MC_SIM_TIER_3 
+        if symbol in settings.SYMBOL_TIERS.get('tier_1', []):
+            n_sims = settings.MC_SIM_TIER_1
+        elif symbol in settings.SYMBOL_TIERS.get('tier_2', []):
+            n_sims = settings.MC_SIM_TIER_2
+
+        mc_sim = Simulator(n_sims=n_sims, horizon=h)
+        mc_res = mc_sim.simulate(current_price, mc_drift_daily, returns.std())
+        
+        mc_p10 = mc_res['quantiles']['p10']
+        mc_p50 = mc_res['quantiles']['p50']
+        mc_p90 = mc_res['quantiles']['p90']
+        
+        mc_p10_pct = (mc_p10 / current_price - 1) * 100
+        mc_p50_pct = (mc_p50 / current_price - 1) * 100
+        mc_p90_pct = (mc_p90 / current_price - 1) * 100
+        
+        # Divergence Analysis
+        divergence = ml_forecast_pct - mc_p50_pct
+        risk_assessment = "Neutral"
+        if divergence > 5: risk_assessment = "High Upside Potential (ML > MC)"
+        elif divergence < -5: risk_assessment = "High Downside Risk (ML < MC)"
+        
+        forecasts.append({
+            "horizon": f"{h} Days",
+            "ml_forecast_pct": ml_forecast_pct,
+            "ml_price": current_price * (1 + ml_forecast_pct/100),
+            "mc_p10_pct": mc_p10_pct,
+            "mc_p10_price": mc_p10,
+            "mc_p50_pct": mc_p50_pct,
+            "mc_p50_price": mc_p50,
+            "mc_p90_pct": mc_p90_pct,
+            "mc_p90_price": mc_p90,
+            "risk_assessment": risk_assessment
+        })
+        
+    # Flatten structure for Market Overview compatibility
+    flattened_forecasts = {}
+    for item in forecasts:
+        h_str = item['horizon'].split()[0]
+        flattened_forecasts[f"forecast_{h_str}d_pct"] = item['ml_forecast_pct']
+        
+    return {
+        "symbol": symbol,
+        "current_price": current_price,
+        "regime": regime_label,
+        "history": history,
+        "forecasts": forecasts, # List for Deep Dive
+        **flattened_forecasts   # Flat keys for Overview
     }
 
 @router.get("/forecast/{symbol}")
@@ -586,13 +993,20 @@ def _compute_advanced_simulation(symbol: str, conservative: bool, engine: str = 
         
         params = sim.fit_regime_params(returns, regimes, n_regimes=transmat.shape[0])
         
+        # Determine Simulations based on Tier
+        n_sims = settings.MC_SIM_TIER_3 # Default
+        if symbol in settings.SYMBOL_TIERS.get('tier_1', []):
+            n_sims = settings.MC_SIM_TIER_1
+        elif symbol in settings.SYMBOL_TIERS.get('tier_2', []):
+            n_sims = settings.MC_SIM_TIER_2
+            
         sim_res = sim.simulate_paths(
             start_price=current_price,
             start_regime=current_regime,
             params=params,
             transmat=transmat,
             days=730,
-            sims=2000,
+            sims=n_sims,
             conservative=conservative,
             engine=engine
         )
@@ -606,7 +1020,7 @@ def _compute_advanced_simulation(symbol: str, conservative: bool, engine: str = 
             returns, 
             start_price=current_price, 
             days=730, 
-            sims=2000
+            sims=n_sims
         )
         current_regime = 0
         regime_label = "Unstable (Fallback)"
@@ -1302,7 +1716,10 @@ def get_system_logs():
     try:
         # daily_report_dir = Path(settings.LOCAL_DATA_DIR) / "daily_reports"
         # Fix: daily_run.py writes to project_root / "data" / "daily_reports"
-        daily_report_dir = Path("data/daily_reports")
+        # We must use absolute path to be robust against CWD
+        BASE_DIR = Path(__file__).resolve().parent.parent.parent
+        daily_report_dir = BASE_DIR / "data" / "daily_reports"
+        
         if not daily_report_dir.exists():
             return {"content": "No reports directory found."}
             

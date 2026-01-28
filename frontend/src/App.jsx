@@ -9,6 +9,7 @@ import './App.css';
 
 import { LogProvider } from './context/LogContext';
 import LogConsole from './components/LogConsole';
+import DeepDiveAnalysis from './components/DeepDiveAnalysis';
 import Analytics from './components/Analytics';
 import Watchlist from './components/Watchlist';
 
@@ -21,6 +22,7 @@ function App() {
         <div className="navbar">
           <a href="#" onClick={() => setView('models')}>System Status</a>
           <a href="#" onClick={() => setView('market')}>Market Overview</a>
+          <a href="#" onClick={() => setView('deep-dive')}>Deep Dive</a> {/* New Tab */}
           <a href="#" onClick={() => setView('briefing')}>Daily Briefing</a>
           <a href="#" onClick={() => setView('walk-forward')}>Walk-Forward</a>
           <a href="#" onClick={() => setView('simulation-v2')}>Advanced Simulation</a>
@@ -32,6 +34,7 @@ function App() {
         <div className="content">
           {view === 'models' && <ModelStatus />}
           {view === 'market' && <MarketOverview />}
+          {view === 'deep-dive' && <DeepDiveAnalysis />} {/* New Component */}
           {view === 'briefing' && <DailyBriefing />}
           {view === 'walk-forward' && <WalkForward />}
           {view === 'simulation-v2' && <AdvancedSimulationV2 />}

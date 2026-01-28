@@ -1,4 +1,0 @@
-SUCCESS: run_daily_automation was called!
-  Called with args: ()
-  Called with kwargs: {'scheduled_run': True}
-PASS: scheduled_run=True argument verified.

@@ -65,6 +65,11 @@ class Settings:
         "tier_2": ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA', 'SPY', 'QQQ', 'IWM'], # Big Tech + Etfs
         "tier_3": [] # All others (default)
     }
+    
+    # Monte Carlo Simulation Logic
+    MC_SIM_TIER_1: int = 2000
+    MC_SIM_TIER_2: int = 1000
+    MC_SIM_TIER_3: int = 500
 
     # Horizon Strategy
     BASE_HORIZONS: list = [10, 100]

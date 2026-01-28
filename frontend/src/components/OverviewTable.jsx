@@ -17,11 +17,11 @@ const OverviewTable = ({ data }) => {
                         <th style={{ padding: '0.8rem', textAlign: 'center' }}>Signal</th>
                         <th style={{ padding: '0.8rem', textAlign: 'center' }}>Trend</th>
                         <th style={{ padding: '0.8rem', textAlign: 'center' }}>Risk</th>
-                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>10d</th>
-                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>30d</th>
-                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>100d</th>
-                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>200d</th>
-                        <th style={{ padding: '0.8rem', textAlign: 'right' }}>365d</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right' }} title="Base Horizon">10d</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right', fontStyle: 'italic', color: '#aaa' }} title="Derived Horizon">30d*</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right' }} title="Base Horizon">100d</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right', fontStyle: 'italic', color: '#aaa' }} title="Derived Horizon">200d*</th>
+                        <th style={{ padding: '0.8rem', textAlign: 'right', fontStyle: 'italic', color: '#aaa' }} title="Derived Horizon">365d*</th>
                     </tr>
                 </thead>
                 <tbody>

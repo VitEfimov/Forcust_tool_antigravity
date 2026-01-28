@@ -929,11 +929,13 @@ def get_market_overview_logic(symbols: list) -> dict:
 
                 last_price = float(close.iloc[-1])
                 prev_price = float(close.iloc[-2]) if len(close) > 1 else last_price
-                change_pct = ((last_price - prev_price) / prev_price) * 100 if prev_price else 0
+                change = last_price - prev_price
+                change_pct = (change / prev_price) * 100 if prev_price else 0
                 
                 overview.append({
                     "symbol": symbol,
                     "price": round(last_price, 2),
+                    "change": round(change, 2),
                     "change_pct": round(change_pct, 2),
                     "signal": "bullish" if change_pct > 0.5 else "bearish" if change_pct < -0.5 else "neutral"
                 })
