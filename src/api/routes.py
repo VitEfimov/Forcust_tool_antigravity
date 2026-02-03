@@ -1988,17 +1988,69 @@ def run_advanced_simulation_job(job_id: str, req: AdvancedSimulationRequest):
         db = Database()
         db.save_advanced_simulation_result(db_item)
         
-        # 6. Prepare Response
-        # We need paths for chart.
-        # 'paths' is (1000, 731). Too big for JSON.
-        # Sample 50 paths.
-        sample_paths = sim_res['paths'][:50].tolist() 
+        # 6. Prepare Response (Match GET endpoint structure)
         
+        # 6a. Generate Analysis
+        analysis = {}
+        horizons_info = {
+            10: "Short-term: High confidence in trend.",
+            30: "1 Month: Volatility drag becomes visible.",
+            100: "~3 Months: Medium-term projection.",
+            365: "1 Year: Long-term drift dominates.",
+            547: "18 Months: Wide cone of uncertainty.",
+            730: "2 Years: Very wide probability range."
+        }
+        
+        current_price = start_price
+        
+        for h, q in sim_res['quantiles'].items():
+            if q['p50'] is None: continue
+            
+            p10, p50, p90 = q['p10'], q['p50'], q['p90']
+            upside = (p90 / current_price - 1) * 100
+            downside = (p10 / current_price - 1) * 100
+            median_chg = (p50 / current_price - 1) * 100
+            
+            risk_label = "Moderate"
+            tail_risk = "Normal"
+            volatility_outlook = "Average"
+            
+            if downside < -50: risk_label = "Extreme Downside Risk"
+            elif downside < -30: risk_label = "High Downside Risk"
+            
+            if upside > 100:
+                if risk_label == "Moderate": risk_label = "High Upside Potential"
+            
+            analysis[h] = {
+                "horizon_days": h,
+                "p10": round(p10, 2),
+                "p50": round(p50, 2),
+                "p90": round(p90, 2),
+                "upside_pct": round(upside, 1),
+                "downside_pct": round(downside, 1),
+                "median_change_pct": round(median_chg, 1),
+                "risk_label": risk_label,
+                "tail_risk": tail_risk,
+                "volatility_outlook": volatility_outlook,
+                "horizon_description": horizons_info.get(h, ""),
+                "interpretation": f"Range: [{downside:.1f}%, +{upside:.1f}%]"
+            }
+
+        # 6b. Payload
         result_payload = {
             "symbol": symbol,
+            "method": f"V2: Async Job ({req.engine})",
+            "current_price": round(current_price, 2),
+            "current_regime": {
+                "id": int(start_regime),
+                "label": rd.get_regime_label(int(start_regime)) 
+            },
+            "transition_matrix": raw_transmat.tolist(),
+            "conservative_mode": req.conservative,
+            "analysis": analysis,
             "paths_sample": sample_paths,
             "quantiles": sim_res['quantiles'],
-            "metrics": {
+             "metrics": {
                 "upside_1y": (p50_val - start_price) / start_price * 100.0,
                 "risk_1y": (p10_val - start_price) / start_price * 100.0
             }
