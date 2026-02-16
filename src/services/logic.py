@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 from pathlib import Path
 import pandas as pd
 import numpy as np
-# from src.core.repository import MarketRepository, SimulationRepository, WishlistRepository
+from src.core.repository import MarketRepository, SimulationRepository, WishlistRepository
 from src.core.models import MarketOverview, SimulationRun, WishlistItem
 from src.data.loader import DataLoader
 from src.core.config import settings

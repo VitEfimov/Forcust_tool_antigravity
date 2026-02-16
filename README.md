@@ -57,3 +57,12 @@ npm run dev
 3.  **Advanced Simulation**: Dive deep into a specific ticker. Check "Conservative Mode" to stress-test against fat tails.
 4.  **ML Training**: Go to the "ML Training" tab. Select `^VIX` and `^TNX` (Treasury Yield) to train a model that understands fear and interest rates.
 
+
+### 5. Deep Training (Full Run)
+To run the full deep learning training pipeline (HMM, Transformer, LightGBM) for all horizons:
+```bash
+# Run from project root
+export PYTHONPATH=$(pwd)
+python src/jobs/deep_train.py
+```
+*Note: This process is resource-intensive. Ensure you have sufficient memory or configure `TRANSFORMER_BATCH_SIZE` in `.env`.*

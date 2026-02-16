@@ -111,8 +111,17 @@ def _compute_market_overview(symbols: List[str]) -> dict:
     db = get_db()
     
     # Strict Horizons and Logic Maps
-    VALID_HORIZONS = [10, 30, 100, 200, 365]
-    DERIVED_MAP = {30: 10, 200: 100, 365: 100}
+    VALID_HORIZONS = [10, 30, 60, 100, 200, 365, 547, 730]
+    
+    # Map derived horizons to their base (MUST exist in Base or be calculated prior in loop)
+    DERIVED_MAP = {
+        30: 10, 
+        60: 30, 
+        200: 100, 
+        365: 100,
+        547: 365, 
+        730: 365
+    }
 
     for item in overview_list:
         # Initialize Defaults
@@ -176,9 +185,8 @@ def _compute_market_overview(symbols: List[str]) -> dict:
             db_forecasts = db.get_history(symbol)
             ml_overrides_pct = {} # Map h -> pct
             
-            # STRICT CONTRACT: ML only for Base Horizons (10, 100). 
-            # Stale DB entries for 30/200/365 must be ignored to force derivation.
-            BASE_HORIZONS = {10, 100}
+            # ALLOW ALL DEEP TRAINED MODELS [30, 180, 365] + BASE [10, 100]
+            BASE_HORIZONS = {10, 30, 100, 180, 365}
             
             if db_forecasts:
                 for f in db_forecasts:
@@ -223,8 +231,8 @@ def _compute_market_overview(symbols: List[str]) -> dict:
                     final_pct = (np.exp(analytical_log) - 1) * 100
 
                 # Store Base Results for Deviation
-                if h in BASE_HORIZONS:
-                    base_results[h] = final_pct
+                # Use current h as base for future derivations
+                base_results[h] = final_pct
 
                 # Store
                 if final_pct is not None:
