@@ -866,14 +866,21 @@ def run_daily_automation(scheduled_run: bool = False):
                 target_date = (datetime.now() + timedelta(days=int(horizon * 1.4))).strftime("%Y-%m-%d")
                 
                 # 1. Standard Forecast Table
-                db.save_forecast(
-                    date=datetime.now().strftime("%Y-%m-%d"),
-                    symbol=target_symbol,
-                    horizon=horizon, 
-                    prediction=wf_data['ml_forecast_price'],
-                    start_price=current_price,
-                    target_date=target_date
-                )
+                # Fix: Only save if we have a meaningful forecast (not just current price fallback)
+                # or if it was actually trained.
+                is_meaningful = abs(wf_data['ml_forecast_price'] - current_price) > 0.0001
+                if is_meaningful or wf_data.get('trained', False):
+                    db.save_forecast(
+                        date=datetime.now().strftime("%Y-%m-%d"),
+                        symbol=target_symbol,
+                        horizon=horizon, 
+                        prediction=wf_data['ml_forecast_price'],
+                        start_price=current_price,
+                        target_date=target_date
+                    )
+                else:
+                    # Optional: We could save it but mark it? For now, skipping protects the DB.
+                    pass
                 
                 # 3. New Symbol Forecast Table (Task 6)
                 db.save_symbol_forecast(

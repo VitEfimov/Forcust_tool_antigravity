@@ -189,12 +189,21 @@ def run_deep_training_logic(run_id=None):
                     external_data[idx] = d
             except: pass
 
+        # Initialize Forecast Map for Snapshot
+        forecast_map = {}
+
         for symbol in target_list:
             logger.info(f"Processing {symbol}...")
             
             # 1. Fetch Data
             df = loader.get_data(symbol, start_date="2010-01-01")
+            
+            # --- START SNAPSHOT PRE-CALC ---
+            if symbol not in forecast_map: forecast_map[symbol] = {}
+            # --- END SNAPSHOT PRE-CALC ---
+
             if df.empty: continue
+
             
             current_price = df['Close'].iloc[-1]
             
@@ -237,6 +246,9 @@ def run_deep_training_logic(run_id=None):
                     # Convert to Pct Return
                     pred_return_pct = (np.exp(pred_log_ret) - 1) * 100
                     
+                    # Capture for Snapshot
+                    forecast_map[symbol][h] = pred_return_pct
+
                     # Calculate Confidence
                     # Use std dev of target (y)
                     sigma = y.std()
@@ -248,7 +260,7 @@ def run_deep_training_logic(run_id=None):
                     if vol_30 > 30: vol_label = "High Volatility"
                     elif vol_30 < 12: vol_label = "Low Volatility"
                     
-                    # Save to DB
+                    # Save to DB (New Table)
                     db.save_symbol_forecast(
                         run_id=run_id,
                         symbol=symbol,
@@ -258,6 +270,22 @@ def run_deep_training_logic(run_id=None):
                         regime=regime,
                         volatility=vol_label
                     )
+
+                    # --- COMPATIBILITY FIX: Save to Legacy Table for API/Analytics ---
+                    # Calculate target price and date
+                    target_price = current_price * (1 + pred_return_pct/100)
+                    # Use business days approximation or just calendar days
+                    target_date = (datetime.now() + timedelta(days=h)).strftime("%Y-%m-%d")
+                    
+                    db.save_forecast(
+                        date=datetime.now().strftime("%Y-%m-%d"),
+                        symbol=symbol,
+                        horizon=h,
+                        prediction=target_price,
+                        start_price=current_price,
+                        target_date=target_date
+                    )
+
                     logger.info(f"    Saved Forecast: {pred_return_pct:.2f}% (Conf: {confidence:.2f})")
                     
                 except Exception as e:
@@ -266,6 +294,59 @@ def run_deep_training_logic(run_id=None):
             # Cleanup
             import gc
             gc.collect()
+
+        # --- NEW: Generate & Save Market Snapshot (History Entry) ---
+        try:
+            logger.info("Generating Analytics Snapshot...")
+            full_snapshot = []
+            
+            # Combine all relevant symbols for snapshot
+            snapshot_symbols = sorted(list(set(settings.TRAINING_TARGETS + settings.TIER_1_INDICES + settings.TIER_2_INDICES + ["^MEGACAP"])))
+            
+            for sym in snapshot_symbols:
+                try:
+                    df_sym = loader.get_data(sym)
+                    if df_sym.empty: continue
+                    
+                    # Basic Stats
+                    price = float(df_sym['Close'].iloc[-1])
+                    prev = float(df_sym['Close'].iloc[-2]) if len(df_sym) > 1 else price
+                    change_pct = (price - prev) / prev * 100
+                    
+                    # Regime/Vol
+                    sma20 = df_sym['Close'].tail(20).mean()
+                    regime_lbl = "Uptrend" if price > sma20 else "Downtrend"
+                    
+                    rets = df_sym['Close'].pct_change().tail(30).dropna()
+                    vol = rets.std() * np.sqrt(252) * 100
+                    risk = "Moderate"
+                    if vol > 30: risk = "High Volatility"
+                    elif vol < 12: risk = "Low Volatility"
+                    
+                    # Get Forecasts (Deep Learning or derived)
+                    # If this symbol was just trained, we use the fresh map.
+                    # If not, we might check DB or leave blank.
+                    sym_forecasts = forecast_map.get(sym, {})
+                    
+                    full_snapshot.append({
+                        "symbol": sym,
+                        "price": round(price, 2),
+                        "change_pct": round(change_pct, 2),
+                        "regime": regime_lbl,
+                        "risk_label": risk,
+                        "volatility_outlook": "Stable" if risk == "Low Volatility" else "Unstable",
+                        "forecasts": sym_forecasts
+                    })
+                except: pass
+                
+            if full_snapshot:
+                db.save_market_overview({"overview": full_snapshot})
+                logger.info(f"Detailed Snapshot Saved ({len(full_snapshot)} symbols).")
+            else:
+                logger.warning("Snapshot generation failed (empty).")
+
+        except Exception as e:
+            logger.error(f"Failed to generate snapshot: {e}")
 
         logger.info("Deep Training Complete.")
         db.end_training_run(run_id, status="success")

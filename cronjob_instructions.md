@@ -1,125 +1,89 @@
 # Deep Training Cronjob Setup (Ubuntu)
 
+This guide explains how to set up the `deep_train.py` script to run automatically on your Ubuntu server.
+
 ## Prerequisites
-- **OS**: Ubuntu 20.04+ (or similar Linux distro)
-- **Software**: Python 3.9+, Git, Virtualenv
-- **Hardware**: Dedicated worker instance recommended (1GB+ RAM) to avoid OOM on API server.
 
-## 1. Clone Repository
+1.  **Project Access**: Codebase is cloned to the server.
+2.  **User Permissions**: You have sudo or user rights to edit crontab.
+3.  **Virtual Environment**: A python venv is set up (e.g., `venv/`).
+
+## 1. Prepare the Layout
+
+Assume the project is located at:
+`/home/ubuntu/Forcust_tool_antigravity`
+
+Ensure the logs directory exists (the script creates it, but good to double check):
 ```bash
-git clone <repo-url>
-cd Forcust_tool_antigravity
+mkdir -p /home/ubuntu/Forcust_tool_antigravity/data/logs
 ```
 
-## 2. Setup Environment
+## 2. The Wrapper Script
+
+The cron environment is minimal and often lacks environment variables or paths. We use `scripts/run_deep_training.sh` to handle this.
+
+**Verify the script exists and is executable:**
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+chmod +x /home/ubuntu/Forcust_tool_antigravity/scripts/run_deep_training.sh
 ```
 
-Create a `.env` file in the root directory with your production configuration:
+**Check variables in the script:**
+Open the file and ensure `VENV_DIR` points to your actual virtual environment.
 ```bash
-nano .env
+nano /home/ubuntu/Forcust_tool_antigravity/scripts/run_deep_training.sh
+# Check: VENV_DIR="$PROJECT_DIR/venv"
 ```
-(Include `DATABASE_URL`, `API_URL`, etc.)
 
 ## 3. Test Manually
-Verify the script runs correctly before automating:
+
+Before adding to cron, run the wrapper manually to ensure it works.
+
 ```bash
-source .venv/bin/activate
-export PYTHONPATH=$(pwd)
-# Optional: Set limits for test run
-export TRANSFORMER_BATCH_SIZE=8 
-export DEEP_TRAINING_ENABLED=true
-
-python src/jobs/deep_train.py
+/home/ubuntu/Forcust_tool_antigravity/scripts/run_deep_training.sh
 ```
-Check logs (`logs/deep_train_*.log` or console output) for "STARTING DEEP TRAINING JOB".
-
-## 4. Create Wrapper Script
-The wrapper script ensures the environment is loaded and prevents overlapping runs.
-
-Create the file `scripts/run_deep_training.sh`:
+Check the output:
 ```bash
-nano scripts/run_deep_training.sh
+cat /home/ubuntu/Forcust_tool_antigravity/data/logs/cron_deep_train.log
 ```
+If you see "Deep Training Complete", you are good to go.
 
-Paste the following content:
-```bash
-#!/bin/bash
+## 4. Add to Crontab
 
-# Go to project directory (UPDATE PATH for your user)
-cd /home/ubuntu/Forcust_tool_antigravity || exit 1
-
-# Activate virtual environment
-source .venv/bin/activate
-
-# Load environment variables
-set -a
-source .env
-set +a
-
-# Prevent overlapping runs (extra safety)
-LOCKFILE="/tmp/deep_training.lock"
-
-if [ -f "$LOCKFILE" ]; then
-  echo "$(date) - Skipping deep training (lock exists)" >> logs/cron.log
-  exit 0
-fi
-
-touch "$LOCKFILE"
-
-# Run training
-echo "$(date) - Starting deep training" >> logs/cron.log
-python src/jobs/deep_train.py >> logs/deep_train_cron.log 2>&1
-
-# Cleanup
-rm -f "$LOCKFILE"
-echo "$(date) - Finished deep training" >> logs/cron.log
-```
-
-Make it executable:
-```bash
-chmod +x scripts/run_deep_training.sh
-```
-
-## 5. Add Cronjob
-Open the crontab editor:
+Open your crontab:
 ```bash
 crontab -e
 ```
 
-Add your schedule. 
+Add one of the following lines at the bottom:
 
-**Example: Weekly (Sunday at 3 AM)**
+**Option A: Weekly (Recommended for heavy training)**
+Runs every Sunday at 2:00 AM.
 ```cron
-0 3 * * 0 /home/ubuntu/Forcust_tool_antigravity/scripts/run_deep_training.sh
+0 2 * * 0 /home/ubuntu/Forcust_tool_antigravity/scripts/run_deep_training.sh
 ```
 
-**Example: Daily (2 AM)**
+**Option B: Daily (If resources allow)**
+Runs every night at 3:00 AM.
 ```cron
-0 2 * * * /home/ubuntu/Forcust_tool_antigravity/scripts/run_deep_training.sh
+0 3 * * * /home/ubuntu/Forcust_tool_antigravity/scripts/run_deep_training.sh
 ```
 
-## 6. Verify Cron Setup
-List cron jobs to confirm:
+保存 and exit (Ctrl+X, Y, Enter for nano).
+
+## 5. Validation
+
+Verify the job is listed:
 ```bash
 crontab -l
 ```
 
-Test the wrapper script manually:
+Wait for the scheduled time and check the log file:
 ```bash
-bash scripts/run_deep_training.sh
+tail -f /home/ubuntu/Forcust_tool_antigravity/data/logs/cron_deep_train.log
 ```
 
-Check the logs to verify execution:
-```bash
-tail -f logs/cron.log
-tail -f logs/deep_train_cron.log
-```
+## ⚠️ Important Notes
 
-## ⚠️ Critical Note on Memory (OOM)
-If you are running on small instances (e.g., 512MB RAM):
-1. **Isolate Workloads**: Do NOT run Deep Training on the exact same instance as your API server if possible.
-2. **Disable Internal Scheduler**: Ensure `src/jobs/daily_run.py` or the API server is NOT also triggering deep training internally. Set `DEEP_TRAINING_ENABLED=false` in the API/Scheduler environment if you are using cron, OR ensure the scheduler logic checks for the same lockfile/flag.
+*   **Memory Usage**: Deep training can be RAM intensive (LightGBM + Transformers). If your server is small (e.g., t2.micro), consider adding swap space or running on a larger instance.
+*   **Concurrency**: The wrapper script includes a **Lock File** (`/tmp/deep_training.lock`) to prevent multiple trainings from stacking up if one takes too long.
+*   **Internal Scheduler**: If you are using the internal python scheduler (`main.py` or similar), ensure it is NOT also trying to run deep training to avoid conflicts. This cronjob replaces the internal scheduler for this specific task.
