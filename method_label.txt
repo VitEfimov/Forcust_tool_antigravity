@@ -1,1 +1,0 @@
-V2: Regime-Switching GARCH (numpy)

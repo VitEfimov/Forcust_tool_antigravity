@@ -8,30 +8,33 @@ This guide explains how to set up the `deep_train.py` script to run automaticall
 2.  **User Permissions**: You have sudo or user rights to edit crontab.
 3.  **Virtual Environment**: A python venv is set up (e.g., `venv/`).
 
-## 1. Prepare the Layout
+## 1. Identify Your Project Path
 
-Assume the project is located at:
-`/home/ubuntu/Forcust_tool_antigravity`
-
-Ensure the logs directory exists (the script creates it, but good to double check):
+In your Linux terminal, navigate into the project folder and run:
 ```bash
-mkdir -p /home/ubuntu/Forcust_tool_antigravity/data/logs
+pwd
+```
+This will give you the absolute path (e.g., `/home/vitlin/Forcust_tool_antigravity` or `/mnt/c/Users/...`). **Use this path in all steps below.**
+
+Ensure the logs directory exists:
+```bash
+mkdir -p <YOUR_PATH>/data/logs
 ```
 
 ## 2. The Wrapper Script
 
-The cron environment is minimal and often lacks environment variables or paths. We use `scripts/run_deep_training.sh` to handle this.
+The cron environment is minimal and often lacks environment variables. We use `scripts/run_deep_training.sh` to handle this.
 
 **Verify the script exists and is executable:**
-```bash
-chmod +x /home/ubuntu/Forcust_tool_antigravity/scripts/run_deep_training.sh
-```
+1. Navigate t
+`
 
 **Check variables in the script:**
-Open the file and ensure `VENV_DIR` points to your actual virtual environment.
+Open the script and ensure `VENV_DIR` points to your actual virtual environment.
 ```bash
-nano /home/ubuntu/Forcust_tool_antigravity/scripts/run_deep_training.sh
-# Check: VENV_DIR="$PROJECT_DIR/venv"
+nano <YOUR_PATH>/scripts/run_deep_training.sh
+# The script automatically detects PROJECT_DIR based on its location.
+# Just ensure VENV_DIR="$PROJECT_DIR/.venv" matches your folder name.
 ```
 
 ## 3. Test Manually
@@ -39,11 +42,11 @@ nano /home/ubuntu/Forcust_tool_antigravity/scripts/run_deep_training.sh
 Before adding to cron, run the wrapper manually to ensure it works.
 
 ```bash
-/home/ubuntu/Forcust_tool_antigravity/scripts/run_deep_training.sh
+<YOUR_PATH>/scripts/run_deep_training.sh
 ```
 Check the output:
 ```bash
-cat /home/ubuntu/Forcust_tool_antigravity/data/logs/cron_deep_train.log
+cat <YOUR_PATH>/data/logs/cron_deep_train.log
 ```
 If you see "Deep Training Complete", you are good to go.
 

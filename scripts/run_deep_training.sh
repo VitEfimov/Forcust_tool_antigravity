@@ -33,10 +33,12 @@ if [ -f .env ]; then
 fi
 
 # Activate Virtual Environment
-if [ -f "$VENV_DIR/bin/activate" ]; then
-    source "$VENV_DIR/bin/activate"
+if [ -f "$PROJECT_DIR/.venv/bin/activate" ]; then
+    source "$PROJECT_DIR/.venv/bin/activate"
+elif [ -f "$PROJECT_DIR/venv/bin/activate" ]; then
+    source "$PROJECT_DIR/venv/bin/activate"
 else
-    echo "Warning: Virtualenv not found at $VENV_DIR"
+    echo "Warning: Virtualenv (venv or .venv) not found in $PROJECT_DIR"
 fi
 
 # 4. Run Script

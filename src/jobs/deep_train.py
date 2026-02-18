@@ -247,7 +247,8 @@ def run_deep_training_logic(run_id=None):
                     pred_return_pct = (np.exp(pred_log_ret) - 1) * 100
                     
                     # Capture for Snapshot
-                    forecast_map[symbol][h] = pred_return_pct
+                    # MongoDB requires string keys
+                    forecast_map[symbol][str(h)] = pred_return_pct
 
                     # Calculate Confidence
                     # Use std dev of target (y)
